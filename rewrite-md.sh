@@ -110,13 +110,14 @@ esac
 content="$(cat "$file_abs" 2>/dev/null)" || pass_through "unreadable"
 dbg "candidate: $file_abs mode=$MD_MODE bytes=${#content}"
 
-# ---- idempotency: never re-chew a file we already rewrote (overwrite) -----
 first_line="$(printf '%s' "$content" | head -n1)"
-[ "$first_line" = "$MARKER" ] && pass_through "already rewritten (marker present)"
 
 # ---- protect YAML frontmatter --------------------------------------------
 # If the file opens with a '---' line and has a closing '---', hold the whole
 # frontmatter block (delimiters included) aside and rewrite only the body.
+# This runs BEFORE the idempotency check on purpose: in overwrite mode the
+# marker goes after the frontmatter, because frontmatter is only frontmatter
+# when it starts on line 1 of the file.
 fm=""
 body="$content"
 if [ "$first_line" = "---" ]; then
@@ -129,6 +130,15 @@ if [ "$first_line" = "---" ]; then
     fm=""
     dbg "frontmatter had no closing '---'; treating whole file as body"
   fi
+fi
+
+# ---- idempotency: never re-chew a file we already rewrote (overwrite) -----
+# The marker is the first non-blank line of the BODY, after any frontmatter.
+# v0.1.1 and earlier wrote it on line 1 of the file, ahead of the frontmatter;
+# that layout is still recognised so those files are not rewritten twice.
+body_first="$(printf '%s\n' "$body" | sed -n '/[^[:space:]]/{p;q;}')"
+if [ "$first_line" = "$MARKER" ] || [ "$body_first" = "$MARKER" ]; then
+  pass_through "already rewritten (marker present)"
 fi
 
 # ---- prose length gate (strip fenced code, count non-space chars) ---------
@@ -191,7 +201,8 @@ fi
 tmp="$file_abs.claudish.$$.tmp"
 if [ "$MD_MODE" = "overwrite" ]; then
   target="$file_abs"
-  { printf '%s\n' "$MARKER"; [ -n "$fm" ] && printf '%s\n\n' "$fm"; printf '%s\n' "$rewrite"; } > "$tmp" 2>/dev/null \
+  # Frontmatter first — it stops being frontmatter if anything precedes it.
+  { [ -n "$fm" ] && printf '%s\n\n' "$fm"; printf '%s\n\n' "$MARKER"; printf '%s\n' "$rewrite"; } > "$tmp" 2>/dev/null \
     || pass_through "tmp write failed"
 else
   target="${file_abs%.md}.$MD_SUFFIX.md"

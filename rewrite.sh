@@ -62,11 +62,14 @@ dbg() { [ "$DEBUG" = "1" ] && printf '%s [%s] %s\n' "$(date '+%H:%M:%S')" "$$" "
 # Fail-open: keep the original delta on screen.
 pass_through() { dbg "pass_through"; exit 0; }
 
-# Replace this chunk's on-screen text with $1.
+# Replace this chunk's on-screen text with $1 (a temp file, read and then
+# removed here — the opportunistic find below only sweeps buffer DIRECTORIES,
+# so without this these would pile up in TMPDIR one per assistant message).
 emit() {
   jq -n --rawfile dc "$1" \
     '{hookSpecificOutput:{hookEventName:"MessageDisplay",displayContent:$dc}}' \
-    2>/dev/null || pass_through
+    2>/dev/null || { rm -f "$1" 2>/dev/null; pass_through; }
+  rm -f "$1" 2>/dev/null
   exit 0
 }
 
@@ -91,8 +94,10 @@ tpath="$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null)
 [ -n "$mid" ] || pass_through
 case "$idx" in ''|*[!0-9]*) idx=0 ;; esac
 
-# Opportunistic cleanup of abandoned buffers (older than 30 min).
+# Opportunistic cleanup of abandoned buffers (older than 30 min), then of the
+# session directories they leave behind once empty.
 find "$BUF_ROOT" -mindepth 2 -maxdepth 2 -type d -mmin +30 -exec rm -rf {} + 2>/dev/null || true
+find "$BUF_ROOT" -mindepth 1 -maxdepth 1 -type d -empty -mmin +30 -exec rmdir {} + 2>/dev/null || true
 
 mdir="$BUF_ROOT/$sid/$mid"
 mkdir -p "$mdir" 2>/dev/null || pass_through
@@ -169,9 +174,11 @@ fi
 if [ -z "$rewrite" ]; then
   dbg "empty rewrite -> fail open (curl_rc=$curl_rc)"
 
-  # One-time, per-session notice when ollama itself is UNREACHABLE (curl_rc!=0:
-  # connection refused, timeout, DNS). A model error while ollama IS up
-  # (curl_rc=0, empty content) stays silent — a notice would be wrong then.
+  # One-time, per-session notice when the cause is a FIXABLE setup problem:
+  # ollama unreachable (curl_rc!=0 — connection refused, timeout, DNS), or
+  # ollama up but returning an error (curl_rc=0 with .error set, e.g. the model
+  # was never pulled). A merely empty completion — ollama up, no error — stays
+  # silent; a notice would be wrong then.
   # The notice only APPENDS one line to the original; it never suppresses
   # content, so the fail-open contract still holds.
   notified="$BUF_ROOT/$sid.notified"

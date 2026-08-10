@@ -21,7 +21,7 @@ This plugin shells out to a **local** model. Nothing works until these are in pl
 | Requirement | Why | Install |
 |---|---|---|
 | **ollama**, running | Does the rewriting, locally | `brew install ollama` then `ollama serve` |
-| A pulled model | The actual rewriter | `ollama pull gemma4:26b-mlx` (~17 GB; choose the model that fits into yor memory) |
+| A pulled model | The actual rewriter | `ollama pull gemma4:26b-mlx` (~17 GB; choose the model that fits into your memory) |
 | `jq` | Parses hook JSON | ships with macOS; else `brew install jq` |
 | `curl` | Talks to ollama | ships with macOS |
 
@@ -176,10 +176,20 @@ tokens/s, so a long plan or spec can take 30–120s. This hook allows up to
 still times out you get the one-time notice above — raise those limits, or set
 `CLAUDISH_MODEL` to a smaller model.
 
-```jsonc
-// enable for one directory, sibling mode (safe default), via env in the hook command
-CLAUDISH_MD_DIR=/ABS/PATH/docs/plain
+Enable it for one directory, in sibling mode (the safe default), the same way
+as every other setting — the `env` block of your `settings.json`:
+
+```json
+{
+  "env": {
+    "CLAUDISH_MD_DIR": "/ABS/PATH/docs/plain",
+    "CLAUDISH_MD_MODE": "sibling"
+  }
+}
 ```
+
+In `overwrite` mode the marker comment is written **after** any YAML
+frontmatter, so the frontmatter stays on line 1 where parsers expect it.
 
 ---
 
