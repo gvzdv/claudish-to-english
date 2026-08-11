@@ -26,6 +26,9 @@
 #
 # Config (env, with safe defaults):
 #   CLAUDISH_ENABLED   1|0            master switch shared with the display hook (default 1)
+#   CLAUDISH_OFF_FILE  <path>         flag file checked per message; when it exists,
+#                                     rewrites pause (default ~/.claude/claudish-off).
+#                                     Lets a hotkey/script toggle mid-session.
 #   CLAUDISH_MD_DIR    <path>         REQUIRED opt-in. Only .md under here is rewritten.
 #                                     Relative paths resolve against the tool's cwd.
 #   CLAUDISH_MD_MODE   sibling|overwrite   (default sibling)

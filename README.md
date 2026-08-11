@@ -144,22 +144,6 @@ rewrites the assistant's message.
 
 ### Display modes
 
-### Toggling mid-session
-
-`CLAUDISH_ENABLED` is read from env, which is frozen when the session starts —
-fine for turning the plugin off permanently, useless for toggling while you
-work. Both hooks therefore also check a **flag file** on every invocation:
-
-```bash
-touch ~/.claude/claudish-off   # pause rewrites, effective next message
-rm    ~/.claude/claudish-off   # resume
-```
-
-Point a hotkey at a two-line toggle script and you can flip the rewrite
-on/off from the keyboard, mid-session, across all running sessions at once.
-Override the path with `CLAUDISH_OFF_FILE`. Fail-open still holds: paused
-just means the hooks emit nothing.
-
 | `CLAUDISH_MODE` | On screen | Notes |
 |---|---|---|
 | `append` (default) | Original streams normally, then a `💬 In plain English:` block is appended. | Safest. No streaming loss; if the LLM fails you just don't get the extra block. |
@@ -213,7 +197,8 @@ frontmatter, so the frontmatter stays on line 1 where parsers expect it.
 
 | Var | Default | Meaning |
 |---|---|---|
-| `CLAUDISH_ENABLED` | `1` | Master switch. `0` = pass everything through. |
+| `CLAUDISH_ENABLED` | `1` | Master switch. `0` = pass everything through. Read once at session start. |
+| `CLAUDISH_OFF_FILE` | `~/.claude/claudish-off` | Runtime kill switch. While this file exists, rewrites pause — re-checked every message, so unlike env vars it works mid-session. See [Toggling mid-session](#toggling-mid-session). |
 | `CLAUDISH_MODE` | `append` | `append` or `replace` (display hook). |
 | `CLAUDISH_MODEL` | `gemma4:26b-mlx` | ollama model name. |
 | `CLAUDISH_OLLAMA` | `http://localhost:11434` | ollama base URL. |
@@ -233,7 +218,28 @@ because a large model rewriting a long document can take a couple of minutes.
 `CLAUDISH_TIMEOUT` and `CLAUDISH_MD_TIMEOUT` keep the LLM call itself bounded
 below those ceilings, so it fails open cleanly instead of being killed mid-write.
 
-**Quick kill switch:** set `CLAUDISH_ENABLED=0`, or disable the plugin.
+**Quick kill switch:** set `CLAUDISH_ENABLED=0` or disable the plugin (both apply
+only from the next session start), or `touch ~/.claude/claudish-off` to pause a
+session that's already running — see [Toggling mid-session](#toggling-mid-session)
+below.
+
+### Toggling mid-session
+
+`CLAUDISH_ENABLED` and the other env vars are read once, when a session launches,
+so they can't pause rewrites in a session that's already running. For that, both
+hooks also check a **flag file** on every invocation — each fire is a fresh
+process, so the check is always live:
+
+```bash
+touch ~/.claude/claudish-off   # pause rewrites, effective on the next message
+rm    ~/.claude/claudish-off   # resume
+```
+
+You create and remove this file yourself; nothing creates it on install, and its
+absence is the normal "on" state. While it exists, `ENABLED` is forced to `0` and
+the fail-open path leaves Claude's original text untouched. Point a hotkey at a
+two-line toggle script to flip rewrites from the keyboard across all running
+sessions at once. Override the path with `CLAUDISH_OFF_FILE`.
 
 ### Reasoning models
 
