@@ -144,6 +144,22 @@ rewrites the assistant's message.
 
 ### Display modes
 
+### Toggling mid-session
+
+`CLAUDISH_ENABLED` is read from env, which is frozen when the session starts —
+fine for turning the plugin off permanently, useless for toggling while you
+work. Both hooks therefore also check a **flag file** on every invocation:
+
+```bash
+touch ~/.claude/claudish-off   # pause rewrites, effective next message
+rm    ~/.claude/claudish-off   # resume
+```
+
+Point a hotkey at a two-line toggle script and you can flip the rewrite
+on/off from the keyboard, mid-session, across all running sessions at once.
+Override the path with `CLAUDISH_OFF_FILE`. Fail-open still holds: paused
+just means the hooks emit nothing.
+
 | `CLAUDISH_MODE` | On screen | Notes |
 |---|---|---|
 | `append` (default) | Original streams normally, then a `💬 In plain English:` block is appended. | Safest. No streaming loss; if the LLM fails you just don't get the extra block. |

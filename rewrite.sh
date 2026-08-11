@@ -26,6 +26,10 @@
 #
 # Config (all via env, with safe defaults):
 #   CLAUDISH_ENABLED   1|0            master switch (default 1)
+#   CLAUDISH_OFF_FILE  <path>         flag file checked per message; when it
+#                                          exists, rewrites pause (default
+#                                          ~/.claude/claudish-off) — lets a
+#                                          hotkey/script toggle mid-session
 #   CLAUDISH_MODE      append|replace display strategy (default append)
 #   CLAUDISH_MODEL     <ollama model> (default gemma4:26b-mlx)
 #   CLAUDISH_OLLAMA    <base url>     (default http://localhost:11434)
@@ -43,6 +47,10 @@
 set -uo pipefail
 
 ENABLED="${CLAUDISH_ENABLED:-1}"
+# Runtime kill switch: env is frozen at session launch, so a hotkey or script
+# can't flip CLAUDISH_ENABLED mid-session. A flag file can be checked fresh on
+# every invocation. Create it to pause rewrites instantly; remove it to resume.
+[ -f "${CLAUDISH_OFF_FILE:-$HOME/.claude/claudish-off}" ] && ENABLED=0
 MODE="${CLAUDISH_MODE:-append}"
 MODEL="${CLAUDISH_MODEL:-gemma4:26b-mlx}"
 OLLAMA="${CLAUDISH_OLLAMA:-http://localhost:11434}"

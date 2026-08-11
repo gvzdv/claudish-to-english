@@ -46,6 +46,10 @@
 set -uo pipefail
 
 ENABLED="${CLAUDISH_ENABLED:-1}"
+# Runtime kill switch: env is frozen at session launch, so a hotkey or script
+# can't flip CLAUDISH_ENABLED mid-session. A flag file can be checked fresh on
+# every invocation. Create it to pause rewrites instantly; remove it to resume.
+[ -f "${CLAUDISH_OFF_FILE:-$HOME/.claude/claudish-off}" ] && ENABLED=0
 MD_DIR="${CLAUDISH_MD_DIR:-}"
 MD_MODE="${CLAUDISH_MD_MODE:-sibling}"
 MD_SUFFIX="${CLAUDISH_MD_SUFFIX:-plain}"
