@@ -146,7 +146,7 @@ if [ "$STUB" = "1" ]; then
   rewrite="STUB-SIMPLIFIED ✦ mode=$MODE chunks=$nparts prose_len=$prose_len ✦ (this text came from the hook, not the model)"
   dbg "stub rewrite"
 else
-  sys="You rewrite the assistant's message into much simpler, plain English. Keep every fact, name, number, and file path. Use short sentences and everyday words. Leave fenced code blocks unchanged. Output ONLY the rewritten message with no preamble, labels, or commentary."
+  sys="You rewrite the assistant's message into much simpler, plain English using a compact outline format. Keep every fact, name, number, agent ID, and file path. Use clean bullet points (•) and concise headers to organize thoughts logically. Group related actions, IDs, and next steps under bulleted lists rather than dense paragraphs. Leave fenced code blocks unchanged. Output ONLY the rewritten message with no preamble, labels, or commentary."
 
   # Context only: the original user question the assistant is answering.
   # Truncated to 800 codepoints inside jq (safe on multibyte boundaries).
@@ -160,13 +160,16 @@ else
   fi
 
   req="$(jq -n --arg m "$MODEL" --arg s "$sys" --arg u "$full" \
-        '{model:$m,stream:false,think:false,options:{temperature:0.3},messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null)"
+        '{model:$m,stream:false,temperature:0.3,messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null)"
   [ -n "$req" ] || { dbg "req build failed"; cleanup; [ "$MODE" = "replace" ] && { out="$mdir.orig"; printf '%s' "$full" > "$out" && emit "$out"; }; pass_through; }
+  # patched: route via Durin's Gate fast (Ben 2026-08-10)
   resp="$(printf '%s' "$req" | curl -sS --max-time "$LLM_TIMEOUT" \
-          -H 'Content-Type: application/json' -X POST "$OLLAMA/api/chat" -d @- 2>/dev/null)"
+          -H 'Content-Type: application/json' \
+          -H "Authorization: Bearer $(cat "$HOME/.config/fleet/key" 2>/dev/null)" \
+          -X POST "${OLLAMA%/}/chat/completions" -d @- 2>/dev/null)"
   curl_rc=$?
-  rewrite="$(printf '%s' "$resp" | jq -j '.message.content // empty' 2>/dev/null)"
-  err="$(printf '%s' "$resp" | jq -r '.error // empty' 2>/dev/null)"
+  rewrite="$(printf '%s' "$resp" | jq -j '.choices[0].message.content // empty' 2>/dev/null)"
+  err="$(printf '%s' "$resp" | jq -r '.error.message // .error // empty' 2>/dev/null)"
   dbg "ollama curl_rc=$curl_rc resp_bytes=${#resp} rewrite_bytes=${#rewrite} err=${err:-none}"
 fi
 
