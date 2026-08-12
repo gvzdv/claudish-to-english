@@ -33,18 +33,21 @@
 #                                     Relative paths resolve against the tool's cwd.
 #   CLAUDISH_MD_MODE   sibling|overwrite   (default sibling)
 #   CLAUDISH_MD_SUFFIX <word>         sibling infix: NAME.<word>.md (default "plain")
-#   CLAUDISH_MODEL     <ollama model> (default gemma4:26b-mlx)
+#   CLAUDISH_PROVIDER  ollama|anthropic|openai  which LLM serves rewrites (default
+#                                     ollama; keys, base URLs, and per-provider model
+#                                     defaults are documented in providers.sh)
+#   CLAUDISH_MODEL     <model>        overrides the provider's default model
 #   CLAUDISH_OLLAMA    <base url>     (default http://localhost:11434)
 #   CLAUDISH_MIN_CHARS <n>            skip files whose prose (code stripped) is shorter (default 200)
-#   CLAUDISH_STUB      1|0            deterministic stub instead of ollama (mechanics testing)
+#   CLAUDISH_STUB      1|0            deterministic stub instead of the LLM (mechanics testing)
 #   CLAUDISH_MD_TIMEOUT <seconds>     LLM client timeout for file rewrites (default 150).
 #                                     Large models rewriting long docs are slow; this is
 #                                     higher than the display hook's timeout on purpose and
 #                                     must stay below the PostToolUse hook timeout in hooks.json.
 #   CLAUDISH_DEBUG     1|0            append a debug log (default 0)
 #   CLAUDISH_NOTICE    1|0            once-per-session systemMessage when a rewrite is
-#                                     skipped because ollama is unreachable, times out,
-#                                     or the model is missing (default 1)
+#                                     skipped because the provider is unreachable, times
+#                                     out, is missing a key or model (default 1)
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -56,8 +59,6 @@ ENABLED="${CLAUDISH_ENABLED:-1}"
 MD_DIR="${CLAUDISH_MD_DIR:-}"
 MD_MODE="${CLAUDISH_MD_MODE:-sibling}"
 MD_SUFFIX="${CLAUDISH_MD_SUFFIX:-plain}"
-MODEL="${CLAUDISH_MODEL:-gemma4:26b-mlx}"
-OLLAMA="${CLAUDISH_OLLAMA:-http://localhost:11434}"
 MIN_CHARS="${CLAUDISH_MIN_CHARS:-200}"
 STUB="${CLAUDISH_STUB:-0}"
 LLM_TIMEOUT="${CLAUDISH_MD_TIMEOUT:-150}"
@@ -72,6 +73,10 @@ dbg() { [ "$DEBUG" = "1" ] && printf '%s [%s] %s\n' "$(date '+%H:%M:%S')" "$$" "
 
 # Fail-open: leave the file as the agent wrote it.
 pass_through() { dbg "pass_through: ${1:-}"; exit 0; }
+
+# Provider layer (ollama/anthropic/openai): MODEL/OLLAMA defaults,
+# llm_complete, llm_notice_why. Missing file -> fail open.
+. "$(cd "$(dirname "$0")" && pwd)/providers.sh" 2>/dev/null || pass_through "no providers.sh"
 
 # Print the canonical absolute path of $1 (its parent directory must exist).
 # Runs in a subshell so the cd never leaks.
@@ -164,15 +169,7 @@ if [ "$STUB" = "1" ]; then
   dbg "stub rewrite"
 else
   sys="You rewrite Markdown prose into much simpler, plain English. Keep every fact, name, number, link, and file path. Keep all Markdown structure — headings, lists, tables, and links. Do NOT change fenced code blocks or any YAML frontmatter; reproduce them exactly. Use short sentences and everyday words. Output ONLY the rewritten Markdown, with no preamble, labels, or commentary."
-  req="$(jq -n --arg m "$MODEL" --arg s "$sys" --arg u "$body" \
-        '{model:$m,stream:false,think:false,options:{temperature:0.3},messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null)"
-  [ -n "$req" ] || pass_through "req build failed"
-  resp="$(printf '%s' "$req" | curl -sS --max-time "$LLM_TIMEOUT" \
-          -H 'Content-Type: application/json' -X POST "$OLLAMA/api/chat" -d @- 2>/dev/null)"
-  curl_rc=$?
-  rewrite="$(printf '%s' "$resp" | jq -j '.message.content // empty' 2>/dev/null)"
-  err="$(printf '%s' "$resp" | jq -r '.error // empty' 2>/dev/null)"
-  dbg "ollama curl_rc=$curl_rc resp_bytes=${#resp} rewrite_bytes=${#rewrite} err=${err:-none}"
+  llm_complete "$sys" "$body" || pass_through "req build failed"
 fi
 
 # Empty/failed rewrite -> fail open (file left exactly as the agent wrote it).
@@ -183,16 +180,10 @@ fi
 if [ -z "$rewrite" ]; then
   notified="$LOG_ROOT/$SID.md-notified"
   if [ "$NOTICE" = "1" ] && [ ! -e "$notified" ]; then
+    TIMEOUT_HINT="raise CLAUDISH_MD_TIMEOUT (and the PostToolUse hook timeout in hooks.json), or set CLAUDISH_MODEL to a smaller model"
+    llm_notice_why
     why=""
-    if [ "$curl_rc" = "28" ]; then
-      why="rewrite of $(basename "$file") timed out after ${LLM_TIMEOUT}s — the model is too slow for a file this size. Raise CLAUDISH_MD_TIMEOUT (and the PostToolUse hook timeout in hooks.json), or set CLAUDISH_MODEL to a smaller model. File left unchanged."
-    elif [ "$curl_rc" != "0" ]; then
-      why="can't reach ollama at $OLLAMA — Markdown rewrite skipped, file left unchanged. Start it with \`ollama serve\`."
-    elif printf '%s' "${err:-}" | grep -qi 'not found'; then
-      why="ollama model '$MODEL' isn't available — Markdown rewrite skipped, file left unchanged. Pull it with \`ollama pull $MODEL\`, or set CLAUDISH_MODEL to a model you have."
-    elif [ -n "${err:-}" ]; then
-      why="ollama error while rewriting Markdown: $err. File left unchanged."
-    fi
+    [ -n "$NOTICE_WHY" ] && why="$NOTICE_WHY — Markdown rewrite of $(basename "$file") skipped, file left unchanged."
     if [ -n "$why" ]; then
       : > "$notified" 2>/dev/null || true
       jq -n --arg m "claudish-to-english: $why (shown once per session; set CLAUDISH_NOTICE=0 to silence)" \

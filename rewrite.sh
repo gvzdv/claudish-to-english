@@ -31,18 +31,22 @@
 #                                          ~/.claude/claudish-off) — lets a
 #                                          hotkey/script toggle mid-session
 #   CLAUDISH_MODE      append|replace display strategy (default append)
-#   CLAUDISH_MODEL     <ollama model> (default gemma4:26b-mlx)
-#   CLAUDISH_OLLAMA    <base url>     (default http://localhost:11434)
+#   CLAUDISH_PROVIDER  ollama|anthropic|openai  which LLM serves rewrites
+#                                           (default ollama; keys, base URLs,
+#                                           and per-provider model defaults
+#                                           are documented in providers.sh)
+#   CLAUDISH_MODEL     <model>         overrides the provider's default model
+#   CLAUDISH_OLLAMA    <base url>      (default http://localhost:11434)
 #   CLAUDISH_MIN_CHARS <n>            skip messages shorter than this
 #                                           (prose, code stripped) (default 200)
-#   CLAUDISH_STUB      1|0            deterministic stub instead of ollama
+#   CLAUDISH_STUB      1|0            deterministic stub instead of the LLM
 #                                           (for display-mechanics testing)
 #   CLAUDISH_TIMEOUT   <seconds>      LLM client timeout (default 45)
 #   CLAUDISH_DEBUG     1|0            write a debug log (default 0)
 #   CLAUDISH_NOTICE    1|0            once-per-session on-screen notice when the
-#                                           rewrite is skipped because ollama is
-#                                           unreachable, times out, or the model
-#                                           is missing (default 1)
+#                                           rewrite is skipped because the
+#                                           provider is unreachable, times out,
+#                                           is missing a key or model (default 1)
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -52,8 +56,6 @@ ENABLED="${CLAUDISH_ENABLED:-1}"
 # every invocation. Create it to pause rewrites instantly; remove it to resume.
 [ -f "${CLAUDISH_OFF_FILE:-$HOME/.claude/claudish-off}" ] && ENABLED=0
 MODE="${CLAUDISH_MODE:-append}"
-MODEL="${CLAUDISH_MODEL:-gemma4:26b-mlx}"
-OLLAMA="${CLAUDISH_OLLAMA:-http://localhost:11434}"
 MIN_CHARS="${CLAUDISH_MIN_CHARS:-200}"
 STUB="${CLAUDISH_STUB:-0}"
 LLM_TIMEOUT="${CLAUDISH_TIMEOUT:-45}"
@@ -69,6 +71,10 @@ dbg() { [ "$DEBUG" = "1" ] && printf '%s [%s] %s\n' "$(date '+%H:%M:%S')" "$$" "
 
 # Fail-open: keep the original delta on screen.
 pass_through() { dbg "pass_through"; exit 0; }
+
+# Provider layer (ollama/anthropic/openai): MODEL/OLLAMA defaults,
+# llm_complete, llm_notice_why. Missing file -> fail open.
+. "$(cd "$(dirname "$0")" && pwd)/providers.sh" 2>/dev/null || pass_through
 
 # Replace this chunk's on-screen text with $1 (a temp file, read and then
 # removed here — the opportunistic find below only sweeps buffer DIRECTORIES,
@@ -167,15 +173,11 @@ else
     dbg "context: userq_bytes=${#userq}"
   fi
 
-  req="$(jq -n --arg m "$MODEL" --arg s "$sys" --arg u "$full" \
-        '{model:$m,stream:false,think:false,options:{temperature:0.3},messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null)"
-  [ -n "$req" ] || { dbg "req build failed"; cleanup; [ "$MODE" = "replace" ] && { out="$mdir.orig"; printf '%s' "$full" > "$out" && emit "$out"; }; pass_through; }
-  resp="$(printf '%s' "$req" | curl -sS --max-time "$LLM_TIMEOUT" \
-          -H 'Content-Type: application/json' -X POST "$OLLAMA/api/chat" -d @- 2>/dev/null)"
-  curl_rc=$?
-  rewrite="$(printf '%s' "$resp" | jq -j '.message.content // empty' 2>/dev/null)"
-  err="$(printf '%s' "$resp" | jq -r '.error // empty' 2>/dev/null)"
-  dbg "ollama curl_rc=$curl_rc resp_bytes=${#resp} rewrite_bytes=${#rewrite} err=${err:-none}"
+  if ! llm_complete "$sys" "$full"; then
+    dbg "req build failed"; cleanup
+    [ "$MODE" = "replace" ] && { out="$mdir.orig"; printf '%s' "$full" > "$out" && emit "$out"; }
+    pass_through
+  fi
 fi
 
 # Empty/failed rewrite -> fail open (or re-show original in replace mode).
@@ -183,26 +185,19 @@ if [ -z "$rewrite" ]; then
   dbg "empty rewrite -> fail open (curl_rc=$curl_rc)"
 
   # One-time, per-session notice when the cause is a FIXABLE setup problem:
-  # ollama unreachable (curl_rc!=0 — connection refused, timeout, DNS), or
-  # ollama up but returning an error (curl_rc=0 with .error set, e.g. the model
-  # was never pulled). A merely empty completion — ollama up, no error — stays
-  # silent; a notice would be wrong then.
-  # The notice only APPENDS one line to the original; it never suppresses
-  # content, so the fail-open contract still holds.
+  # provider unreachable (curl_rc!=0 — connection refused, timeout, DNS), a
+  # missing API key, or the provider returning an error (e.g. the ollama model
+  # was never pulled). A merely empty completion — provider up, no error —
+  # stays silent (llm_notice_why leaves NOTICE_WHY empty); a notice would be
+  # wrong then. The notice only APPENDS one line to the original; it never
+  # suppresses content, so the fail-open contract still holds.
   notified="$BUF_ROOT/$sid.notified"
-  if [ "$NOTICE" = "1" ] && [ ! -e "$notified" ] && { [ "$curl_rc" != "0" ] || [ -n "${err:-}" ]; }; then
+  TIMEOUT_HINT="raise CLAUDISH_TIMEOUT or set CLAUDISH_MODEL to a smaller model"
+  llm_notice_why
+  if [ "$NOTICE" = "1" ] && [ ! -e "$notified" ] && [ -n "$NOTICE_WHY" ]; then
     : > "$notified" 2>/dev/null || true
     last_delta="$(cat "$final_part" 2>/dev/null)"
-    if [ "$curl_rc" = "28" ]; then
-      why="the rewrite timed out after ${LLM_TIMEOUT}s (model too slow for this message) — raise CLAUDISH_TIMEOUT or set CLAUDISH_MODEL to a smaller model"
-    elif [ "$curl_rc" != "0" ]; then
-      why="can't reach ollama at $OLLAMA — start it with \`ollama serve\` (see the plugin README)"
-    elif printf '%s' "${err:-}" | grep -qi 'not found'; then
-      why="ollama model '$MODEL' isn't available — pull it with \`ollama pull $MODEL\`, or set CLAUDISH_MODEL to a model you have"
-    else
-      why="ollama returned an error: ${err:-unknown}"
-    fi
-    note=$'\n\n────────────────────────\n'"⚠️ claudish-to-english: $why. Showing Claude's original text unchanged. Shown once per session; set CLAUDISH_NOTICE=0 to silence."
+    note=$'\n\n────────────────────────\n'"⚠️ claudish-to-english: $NOTICE_WHY. Showing Claude's original text unchanged. Shown once per session; set CLAUDISH_NOTICE=0 to silence."
     out="$BUF_ROOT/$sid.$mid.notice"
     if [ "$MODE" = "replace" ]; then
       { printf '%s' "$full"; printf '%s' "$note"; } > "$out" 2>/dev/null
