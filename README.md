@@ -18,7 +18,9 @@ are written or edited (opt-in, off by default).
 
 This plugin shells out to a **local** model. Nothing works until these are in place:
 
-### MacOS setup
+<a id="macos-setup"></a>
+<details>
+<summary><strong>macOS setup</strong></summary>
 
 | Requirement | Why | Install |
 |---|---|---|
@@ -41,14 +43,21 @@ hook appends a one-line notice on screen, and the Markdown hook shows a
 `systemMessage`. So a silent skip is never a mystery (once per session; set
 `CLAUDISH_NOTICE=0` to silence it).
 
-**Pick a model you actually have.** The default is `gemma4:26b`. Pull it, or
-pull a smaller/faster model and point the plugin at it by setting
-`CLAUDISH_MODEL` to that model's exact ollama tag in your `env` (see
+**Pick a model you actually have.** The default is `gemma4:26b-mlx`, an
+Apple-silicon (MLX) build — the right choice on a Mac, but **macOS-only**. On
+Windows it doesn't run, so you must switch to a regular tag (see
+[Windows setup](#windows-setup)). Pull it (as above), or pull a smaller/faster
+model and point the plugin at it by setting `CLAUDISH_MODEL` to that model's
+exact ollama tag in your `env` (see
 [Configuring the plugin](#configuring-the-plugin)). If `CLAUDISH_MODEL` names a
 model you have not pulled, every rewrite is skipped — with the one-time notice
 above.
 
-### Windows setup
+</details>
+
+<a id="windows-setup"></a>
+<details>
+<summary><strong>Windows setup</strong></summary>
 
 The hooks are bash scripts; on Windows, Claude Code runs them through **Git
 Bash** (Git for Windows).
@@ -64,10 +73,12 @@ Bash** (Git for Windows).
 Restart your terminal after installing so `jq`, `ollama`, and Git Bash are on
 PATH (check `jq --version` and `ollama --version`).
 
-**Do not use the macOS MLX model on Windows.** `gemma4:26b-mlx` is an
-Apple-silicon (MLX) build and doesn't exist for Windows — with it, every
-rewrite is skipped. The table above uses `gemma4:26b` as an example regular
-tag; choose another if it fits your machine better.
+> **The default model is macOS-only — Windows users must override it.** The
+> plugin's default, `gemma4:26b-mlx`, is an Apple-silicon (MLX) build that doesn't
+> run on Windows, so leaving it unset means every rewrite is silently skipped.
+> Always set `CLAUDISH_MODEL` to a regular (non-MLX) tag on Windows. The table
+> above uses `gemma4:26b` as an example; choose another if it fits your machine
+> better.
 
 Warm the model once after launching Ollama (the first call is a slow cold load):
 
@@ -93,11 +104,14 @@ Remove-Item $HOME\.claude\claudish-off               # resume
 
 (In Git Bash the `touch`/`rm` commands from that section work as-is.)
 
-Two path notes: write `CLAUDISH_MD_DIR` with forward slashes
-(`C:/dev/docs/plain`) so the bash-side path checks match, and the
-`CLAUDISH_DEBUG=1` log lands under Git Bash's temp directory
+Notes:
+- Write `CLAUDISH_MD_DIR` with forward slashes
+(`C:/dev/docs/plain`) so the bash-side path checks match
+- The `CLAUDISH_DEBUG=1` log lands under Git Bash's temp directory
 (`$TMPDIR/claudish-to-english/`, typically
 `C:\Users\<you>\AppData\Local\Temp\claudish-to-english\`).
+
+</details>
 
 ---
 
@@ -143,7 +157,7 @@ For a personal, all-projects setup, use `~/.claude/settings.json`:
 ```json
 {
   "env": {
-    "CLAUDISH_MODEL": "gemma4:26b",
+    "CLAUDISH_MODEL": "gemma4:26b-mlx",
     "CLAUDISH_MODE": "append"
   }
 }
@@ -223,7 +237,7 @@ In both modes: YAML frontmatter is split off and re-attached **verbatim**, fence
 code is left to the model instruction, short files are skipped, and the write is
 atomic. Fail-open here means the file is left **exactly as the agent wrote it**.
 
-**Large files are slow.** `gemma4:26b` (the default) rewrites at roughly 60
+**Large files are slow.** `gemma4:26b-mlx` (the default) rewrites at roughly 60
 tokens/s, so a long plan or spec can take 30–120s. This hook allows up to
 `CLAUDISH_MD_TIMEOUT` (150s) inside a 180s `PostToolUse` hook budget; if a rewrite
 still times out you get the one-time notice above — raise those limits, or set
@@ -253,7 +267,7 @@ frontmatter, so the frontmatter stays on line 1 where parsers expect it.
 | `CLAUDISH_ENABLED` | `1` | Master switch. `0` = pass everything through. Read once at session start. |
 | `CLAUDISH_OFF_FILE` | `~/.claude/claudish-off` | Runtime kill switch. While this file exists, rewrites pause — re-checked every message, so unlike env vars it works mid-session. See [Toggling mid-session](#toggling-mid-session). |
 | `CLAUDISH_MODE` | `append` | `append` or `replace` (display hook). |
-| `CLAUDISH_MODEL` | `gemma4:26b` | ollama model name. |
+| `CLAUDISH_MODEL` | `gemma4:26b-mlx` | ollama model name (MLX = Apple-silicon only; Windows users must override). |
 | `CLAUDISH_OLLAMA` | `http://localhost:11434` | ollama base URL. |
 | `CLAUDISH_MIN_CHARS` | `200` | Skip messages/files whose prose (code stripped) is shorter than this. |
 | `CLAUDISH_STUB` | `0` | `1` = deterministic stub instead of the model (for testing display mechanics). |
