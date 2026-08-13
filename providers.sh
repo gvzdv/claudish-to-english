@@ -99,12 +99,16 @@ _llm_key_file() {
   _kv="${_kv//\\/\\\\}"; _kv="${_kv//\"/\\\"}"
   printf 'header = "%s: %s"\n' "$1" "$_kv" > "$_kf" 2>/dev/null \
     || { rm -f "$_kf" 2>/dev/null; return 0; }
+  # curl accepts an EMPTY -K file and would proceed unauthenticated; a partial
+  # write (ENOSPC) must therefore fail here, not at the endpoint.
+  [ -s "$_kf" ] || { rm -f "$_kf" 2>/dev/null; return 0; }
   printf '%s' "$_kf"
 }
 
 llm_complete() {
   _sys="$1"; _user="$2"
   rewrite=""; curl_rc=0; err=""; resp=""; http=""; finish=""; truncated=0
+  hdrfile=""; cfgerr=0
   case "$PROVIDER" in
     anthropic)
       if [ -z "$ANTHROPIC_KEY" ]; then dbg "anthropic: no key"; curl_rc=1; return 0; fi
@@ -114,11 +118,14 @@ llm_complete() {
       [ -n "$req" ] || return 2
       hdrfile="$(_llm_key_file "x-api-key" "$ANTHROPIC_KEY")"
       if [ -z "$hdrfile" ]; then
-        err="could not create a private temp file for the API key under ${TMPDIR:-/tmp}"
+        cfgerr=1
+        err="could not create a private temp file for the API key under ${TMPDIR:-/tmp} — nothing was sent"
         return 0
       fi
       # If the hook is killed mid-request the file must not linger in TMPDIR.
-      trap "rm -f '$hdrfile' 2>/dev/null" EXIT
+      # Single quotes: $hdrfile expands when the trap FIRES, immune to quoting
+      # in the path (it is always set — reset to "" at the top of this call).
+      trap 'rm -f "$hdrfile" 2>/dev/null' EXIT
       resp="$(printf '%s' "$req" | curl -sS --max-time "$LLM_TIMEOUT" -w '\n%{http_code}' \
               -K "$hdrfile" -H 'Content-Type: application/json' \
               -H 'anthropic-version: 2023-06-01' \
@@ -146,10 +153,11 @@ llm_complete() {
       if [ -n "$OPENAI_KEY" ]; then
         hdrfile="$(_llm_key_file "Authorization" "Bearer $OPENAI_KEY")"
         if [ -z "$hdrfile" ]; then
-          err="could not create a private temp file for the API key under ${TMPDIR:-/tmp}"
+          cfgerr=1
+          err="could not create a private temp file for the API key under ${TMPDIR:-/tmp} — nothing was sent"
           return 0
         fi
-        trap "rm -f '$hdrfile' 2>/dev/null" EXIT
+        trap 'rm -f "$hdrfile" 2>/dev/null' EXIT
         auth=(-K "$hdrfile")
       fi
       resp="$(printf '%s' "$req" | curl -sS --max-time "$LLM_TIMEOUT" -w '\n%{http_code}' \
@@ -172,6 +180,11 @@ llm_complete() {
       curl_rc=$?
       rewrite="$(printf '%s' "$resp" | jq -j '.message.content // empty' 2>/dev/null)"
       err="$(printf '%s' "$resp" | jq -r '.error // empty' 2>/dev/null)"
+      # ollama reports output-cap truncation as done_reason "length"; a
+      # half-finished rewrite must be discarded like on the cloud providers.
+      # (Response-side only — the request stays byte-identical to before.)
+      finish="$(printf '%s' "$resp" | jq -r '.done_reason // empty' 2>/dev/null)"
+      [ "$finish" = "length" ] && { truncated=1; rewrite=""; }
       ;;
   esac
 
@@ -183,6 +196,8 @@ llm_complete() {
      && [ "$curl_rc" = "0" ] && [ "$truncated" = "0" ] && [ -n "$http" ]; then
     case "$http" in
       2??) ;;
+      # Server-side trouble: the URL is probably fine, the endpoint isn't.
+      5??|429) err="HTTP $http from the endpoint — it may be down, overloaded, or rate-limiting" ;;
       *)   case "$PROVIDER" in
              anthropic) err="HTTP $http with no error message in the response — check that CLAUDISH_ANTHROPIC_URL points at an Anthropic-compatible API base URL" ;;
              *)         err="HTTP $http with no error message in the response — check that CLAUDISH_OPENAI_URL points at an OpenAI-compatible API base URL (usually ending in /v1)" ;;
@@ -201,6 +216,8 @@ llm_notice_why() {
     anthropic)
       if [ -z "$ANTHROPIC_KEY" ]; then
         NOTICE_WHY="no Anthropic API key in this session's environment (set CLAUDISH_ANTHROPIC_KEY or ANTHROPIC_API_KEY), so rewrites are off"
+      elif [ "${cfgerr:-0}" = "1" ]; then
+        NOTICE_WHY="${err:-provider configuration error}"
       elif [ "${truncated:-0}" = "1" ]; then
         NOTICE_WHY="the rewrite hit the ${MAX_TOKENS}-token output cap and was discarded rather than shown half-finished — raise CLAUDISH_MAX_TOKENS"
       elif [ -n "${err:-}" ]; then
@@ -214,8 +231,10 @@ llm_notice_why() {
     openai)
       if [ -z "$OPENAI_KEY" ] && [ "$OPENAI_URL" = "https://api.openai.com/v1" ]; then
         NOTICE_WHY="no OpenAI API key in this session's environment (set CLAUDISH_OPENAI_KEY or OPENAI_API_KEY), so rewrites are off"
+      elif [ "${cfgerr:-0}" = "1" ]; then
+        NOTICE_WHY="${err:-provider configuration error}"
       elif [ "${truncated:-0}" = "1" ]; then
-        NOTICE_WHY="the rewrite hit the model's output-token limit and was discarded rather than shown half-finished — raise the server's completion cap or use a shorter message"
+        NOTICE_WHY="the rewrite hit the model's output-token limit and was discarded rather than shown half-finished — use a shorter message, or raise the completion cap if you run the server yourself"
       elif [ -n "${err:-}" ]; then
         NOTICE_WHY="OpenAI API error: ${err}"
       elif [ "$curl_rc" = "28" ]; then
@@ -225,7 +244,12 @@ llm_notice_why() {
       fi
       ;;
     *)
-      if [ "$curl_rc" = "28" ]; then
+      # truncated first: it can only occur on a successful response, so none
+      # of the pre-existing branches (whose wording must stay byte-identical)
+      # can ever fire for the same state.
+      if [ "${truncated:-0}" = "1" ]; then
+        NOTICE_WHY="the rewrite hit ollama's output-token limit and was discarded rather than shown half-finished — raise the model's output cap (num_predict) or use a shorter message"
+      elif [ "$curl_rc" = "28" ]; then
         NOTICE_WHY="the rewrite timed out after ${LLM_TIMEOUT}s (model too slow for this message) — ${TIMEOUT_HINT:-raise the timeout or set CLAUDISH_MODEL to a smaller model}"
       elif [ "$curl_rc" != "0" ]; then
         NOTICE_WHY="can't reach ollama at $OLLAMA — start it with \`ollama serve\` (see the plugin README)"

@@ -220,15 +220,17 @@ ollama, nothing leaves your machine.
 > [!CAUTION]
 > The cloud providers pick their key up from the **ambient environment**
 > (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`), and `CLAUDISH_OPENAI_URL` defaults
-> to api.openai.com. Claude Code automatically loads a project's `.env` file
-> into the session environment — so in a project whose `.env` already contains
-> `OPENAI_API_KEY`, setting the single variable `CLAUDISH_PROVIDER=openai`
-> starts sending every assistant message (and, with the Markdown hook, file
-> contents) to OpenAI's cloud. Likewise, `CLAUDISH_PROVIDER=anthropic` will
-> quietly spend the same `ANTHROPIC_API_KEY` (and share its rate limits) that
-> other tools on your machine may rely on. Selecting a cloud provider IS the
-> consent switch — set it only when you mean it, and use the `CLAUDISH_*_KEY`
-> variables when you want the plugin on a dedicated key.
+> to api.openai.com. Anything that puts those variables into the environment
+> Claude Code launches with — an `export` in your shell profile, a tool like
+> direnv loading a project's `.env` into your shell, or the `env` block of a
+> settings file — makes them visible to this plugin. In such an environment,
+> setting the single variable `CLAUDISH_PROVIDER=openai` starts sending every
+> assistant message (and, with the Markdown hook, file contents) to OpenAI's
+> cloud. Likewise, `CLAUDISH_PROVIDER=anthropic` will quietly spend the same
+> `ANTHROPIC_API_KEY` (and share its rate limits) that other tools on your
+> machine may rely on. Selecting a cloud provider IS the consent switch — set
+> it only when you mean it, and use the `CLAUDISH_*_KEY` variables when you
+> want the plugin on a dedicated key.
 
 ```bash
 # Anthropic
@@ -257,10 +259,11 @@ Notes:
   api.openai.com — needed for models that reject `reasoning_effort` entirely.
 - The anthropic provider caps completions at `CLAUDISH_MAX_TOKENS` (default
   4096, since the Messages API requires an explicit cap).
-- A rewrite that hits an output-token cap is **discarded**, not shown: a
-  half-finished rewrite on screen is confusing, and in the Markdown hook's
-  `overwrite` mode it would replace your real document. You get the original
-  text plus the once-per-session notice suggesting a higher cap.
+- A rewrite that hits an output-token cap is **discarded**, not shown — on all
+  three providers (ollama's `done_reason: "length"` included): a half-finished
+  rewrite on screen is confusing, and in the Markdown hook's `overwrite` mode
+  it would replace your real document. You get the original text plus the
+  once-per-session notice suggesting a higher cap.
 - Every provider failure stays fail-open: missing key, bad key, unreachable
   endpoint, or timeout just leaves the original text (plus the once-per-session
   notice, unless `CLAUDISH_NOTICE=0`).
