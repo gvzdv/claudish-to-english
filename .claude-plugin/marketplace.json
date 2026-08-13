@@ -10,7 +10,7 @@
     {
       "name": "claudish-to-english",
       "source": "./",
-      "description": "Shows a plain-English rewrite of each Claude Code assistant message, produced by a local LLM (ollama). Display-only.",
+      "description": "Shows a plain-English rewrite of each Claude Code assistant message, produced by a local LLM (ollama, default), the Anthropic API, or any OpenAI-compatible API. Display-only.",
       "category": "productivity"
     }
   ]
