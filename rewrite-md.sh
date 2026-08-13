@@ -33,6 +33,9 @@
 #                                     Relative paths resolve against the tool's cwd.
 #   CLAUDISH_MD_MODE   sibling|overwrite   (default sibling)
 #   CLAUDISH_MD_SUFFIX <word>         sibling infix: NAME.<word>.md (default "plain")
+#   CLAUDISH_MD_PROMPT_FILE <path>    file holding a replacement Markdown prompt
+#                                     (whole prompt, not merged; empty or
+#                                     unreadable -> built-in default)
 #   CLAUDISH_PROVIDER  ollama|anthropic|openai  which LLM serves rewrites (default
 #                                     ollama; keys, base URLs, and per-provider model
 #                                     defaults are documented in providers.sh)
@@ -168,7 +171,18 @@ if [ "$STUB" = "1" ]; then
   rewrite="STUB-SIMPLIFIED-MD ✦ mode=$MD_MODE prose_len=$prose_len ✦"$'\n\n'"$body"
   dbg "stub rewrite"
 else
+  # Base system prompt, replaceable via CLAUDISH_MD_PROMPT_FILE (a file holding
+  # the whole prompt). An unset/empty/unreadable file falls back to this default.
   sys="You rewrite Markdown prose into much simpler, plain English. Keep every fact, name, number, link, and file path. Keep all Markdown structure — headings, lists, tables, and links. Do NOT change fenced code blocks or any YAML frontmatter; reproduce them exactly. Use short sentences and everyday words. Output ONLY the rewritten Markdown, with no preamble, labels, or commentary."
+  if [ -n "${CLAUDISH_MD_PROMPT_FILE:-}" ]; then
+    _p=""
+    [ -r "$CLAUDISH_MD_PROMPT_FILE" ] && _p="$(cat "$CLAUDISH_MD_PROMPT_FILE" 2>/dev/null)"
+    if [ -n "$_p" ]; then
+      sys="$_p"
+    else
+      dbg "CLAUDISH_MD_PROMPT_FILE set but empty/unreadable ($CLAUDISH_MD_PROMPT_FILE); using default prompt"
+    fi
+  fi
   llm_complete "$sys" "$body" || pass_through "req build failed"
 fi
 

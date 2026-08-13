@@ -31,6 +31,9 @@
 #                                          ~/.claude/claudish-off) — lets a
 #                                          hotkey/script toggle mid-session
 #   CLAUDISH_MODE      append|replace display strategy (default append)
+#   CLAUDISH_PROMPT_FILE <path>       file holding a replacement rewrite prompt
+#                                          (whole prompt, not merged; empty or
+#                                          unreadable -> built-in default)
 #   CLAUDISH_PROVIDER  ollama|anthropic|openai  which LLM serves rewrites
 #                                           (default ollama; keys, base URLs,
 #                                           and per-provider model defaults
@@ -160,7 +163,19 @@ if [ "$STUB" = "1" ]; then
   rewrite="STUB-SIMPLIFIED ✦ mode=$MODE chunks=$nparts prose_len=$prose_len ✦ (this text came from the hook, not the model)"
   dbg "stub rewrite"
 else
+  # Base system prompt, replaceable via CLAUDISH_PROMPT_FILE (a file holding the
+  # whole prompt). An unset/empty/unreadable file falls back to this default, so
+  # a bad path never stops rewrites — it just uses the built-in prompt.
   sys="You rewrite the assistant's message into much simpler, plain English. Keep every fact, name, number, and file path. Use short sentences and everyday words. Leave fenced code blocks unchanged. Output ONLY the rewritten message with no preamble, labels, or commentary."
+  if [ -n "${CLAUDISH_PROMPT_FILE:-}" ]; then
+    _p=""
+    [ -r "$CLAUDISH_PROMPT_FILE" ] && _p="$(cat "$CLAUDISH_PROMPT_FILE" 2>/dev/null)"
+    if [ -n "$_p" ]; then
+      sys="$_p"
+    else
+      dbg "CLAUDISH_PROMPT_FILE set but empty/unreadable ($CLAUDISH_PROMPT_FILE); using default prompt"
+    fi
+  fi
 
   # Context only: the original user question the assistant is answering.
   # Truncated to 800 codepoints inside jq (safe on multibyte boundaries).

@@ -199,6 +199,42 @@ To confirm the hook is firing, set `CLAUDISH_DEBUG=1` and watch
 
 ---
 
+## Customizing the rewrite prompt
+
+Each hook ships with a default system prompt that asks the model for plain
+English while preserving facts, code, and structure. You can **replace** either
+prompt with your own to add specific rules or use wording that works
+better with your model. To do so, point the hook at a file that holds
+the prompt:
+
+| Hook | Prompt file |
+|---|---|
+| Display (`rewrite.sh`) | `CLAUDISH_PROMPT_FILE` |
+| Markdown (`rewrite-md.sh`) | `CLAUDISH_MD_PROMPT_FILE` |
+
+The file's contents **replace** the built-in prompt, so
+include every instruction you want the model to follow — otherwise the defaults
+(keep facts, leave code blocks alone, output only the rewrite) are gone. Keeping
+the prompt in a file avoids escaping a long, multi-line prompt inside a JSON
+string. If the variable is unset, or the file is empty or unreadable, the hook
+falls back to its built-in default, so a bad path never stops rewrites.
+
+```json
+{
+  "env": {
+    "CLAUDISH_PROMPT_FILE": "/ABS/PATH/prompts/plain.txt",
+    "CLAUDISH_MD_PROMPT_FILE": "/ABS/PATH/prompts/md-plain.txt"
+  }
+}
+```
+
+The display hook still appends the **original user question** to your prompt, as
+context to keep the rewrite on-topic (see
+[How the display hook works](#how-the-display-hook-works)). Your prompt
+replaces only the base instruction.
+
+---
+
 ## How the display hook works
 
 Claude Code fires the `MessageDisplay` event **once per streamed chunk**, not
@@ -354,6 +390,7 @@ Notes:
 | `CLAUDISH_ENABLED` | `1` | Master switch. `0` = pass everything through. Read once at session start. |
 | `CLAUDISH_OFF_FILE` | `~/.claude/claudish-off` | Runtime kill switch. While this file exists, rewrites pause — re-checked every message, so unlike env vars it works mid-session. See [Toggling mid-session](#toggling-mid-session). |
 | `CLAUDISH_MODE` | `append` | `append` or `replace` (display hook). |
+| `CLAUDISH_PROMPT_FILE` | *(unset)* | Path to a file whose contents replace the display hook's system prompt (whole prompt, not merged). Empty/unreadable falls back to the built-in default. See [Customizing the rewrite prompt](#customizing-the-rewrite-prompt). |
 | `CLAUDISH_PROVIDER` | `ollama` | `ollama`, `anthropic`, or `openai` — which LLM serves rewrites (both hooks). |
 | `CLAUDISH_MODEL` | *(per provider)* | Model name; overrides the provider default (see [Providers](#providers)). The ollama default `gemma4:26b-mlx` is MLX (Apple-silicon only; Windows users must override). |
 | `CLAUDISH_OLLAMA` | `http://localhost:11434` | ollama base URL. |
@@ -372,6 +409,7 @@ Notes:
 | `CLAUDISH_MD_DIR` | *(unset)* | **Markdown hook opt-in.** Only `*.md` under this directory is rewritten. Unset = the Markdown hook does nothing. |
 | `CLAUDISH_MD_MODE` | `sibling` | `sibling` (`NAME.plain.md`) or `overwrite` (in place). |
 | `CLAUDISH_MD_SUFFIX` | `plain` | Sibling infix: `NAME.<suffix>.md`. |
+| `CLAUDISH_MD_PROMPT_FILE` | *(unset)* | Path to a file whose contents replace the Markdown hook's system prompt (whole prompt, not merged). Empty/unreadable falls back to the built-in default. |
 
 In `hooks/hooks.json` the display hook (`MessageDisplay`) has a 60s `timeout` and
 the Markdown hook (`PostToolUse`) has a 180s `timeout` — the file hook is higher
@@ -435,6 +473,7 @@ claudish-to-english/
 ├── rewrite.sh              # display-rewrite hook
 ├── rewrite-md.sh           # markdown-file rewrite hook (opt-in)
 ├── providers.sh            # provider layer (ollama/anthropic/openai), sourced by both hooks
+├── CHANGELOG.md            # notable changes per version (Keep a Changelog)
 ├── LICENSE
 └── README.md
 ```
