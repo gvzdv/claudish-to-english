@@ -30,11 +30,15 @@ and nothing works until these are in place. (With `CLAUDISH_PROVIDER=anthropic`
 or `openai` you need only `jq`, `curl`, and an API key — see
 [Providers](#providers).)
 
+<a id="macos-setup"></a>
+<details>
+<summary><strong>macOS setup</strong></summary>
+
 | Requirement | Why | Install |
 |---|---|---|
 | **ollama**, running | Does the rewriting, locally | `brew install ollama` then `ollama serve` |
 | A pulled model | The actual rewriter | `ollama pull gemma4:26b-mlx` (~17 GB; choose the model that fits into your memory) |
-| `jq` | Parses hook JSON | ships with macOS; else `brew install jq` |
+| `jq` | Parses hook JSON | ships with macOS 15+; else `brew install jq` |
 | `curl` | Talks to ollama | ships with macOS |
 
 Warm the model once after `ollama serve` (the first call is a slow cold load):
@@ -51,12 +55,75 @@ hook appends a one-line notice on screen, and the Markdown hook shows a
 `systemMessage`. So a silent skip is never a mystery (once per session; set
 `CLAUDISH_NOTICE=0` to silence it).
 
-**Pick a model you actually have.** The default is `gemma4:26b-mlx`. Pull it (as
-above), or pull a smaller/faster model and point the plugin at it by setting
-`CLAUDISH_MODEL` to that model's exact ollama tag in your `env` (see
+**Pick a model you actually have.** The default is `gemma4:26b-mlx`, an
+Apple-silicon (MLX) build — the right choice on a Mac, but **macOS-only**. On
+Windows it doesn't run, so you must switch to a regular tag (see
+[Windows setup](#windows-setup)). Pull it (as above), or pull a smaller/faster
+model and point the plugin at it by setting `CLAUDISH_MODEL` to that model's
+exact ollama tag in your `env` (see
 [Configuring the plugin](#configuring-the-plugin)). If `CLAUDISH_MODEL` names a
 model you have not pulled, every rewrite is skipped — with the one-time notice
 above.
+
+</details>
+
+<a id="windows-setup"></a>
+<details>
+<summary><strong>Windows setup</strong></summary>
+
+The hooks are bash scripts; on Windows, Claude Code runs them through **Git
+Bash** (Git for Windows).
+
+| Requirement | Why | Install |
+|---|---|---|
+| **Ollama**, running | Does the rewriting, locally | `winget install Ollama.Ollama`, then launch the Ollama app; it serves on `localhost:11434` |
+| A pulled model | The actual rewriter | `ollama pull gemma4:26b` (choose a model that fits into your memory) |
+| `jq` | Parses hook JSON | `winget install jqlang.jq` |
+| `curl` | Talks to ollama | ships with Windows 10+ |
+| Git Bash | Runs the hook scripts | Claude Code users usually already have it; else `winget install Git.Git` |
+
+Restart your terminal after installing so `jq`, `ollama`, and Git Bash are on
+PATH (check `jq --version` and `ollama --version`).
+
+> **The default model is macOS-only — Windows users must override it.** The
+> plugin's default, `gemma4:26b-mlx`, is an Apple-silicon (MLX) build that doesn't
+> run on Windows, so leaving it unset means every rewrite is silently skipped.
+> Always set `CLAUDISH_MODEL` to a regular (non-MLX) tag on Windows. The table
+> above uses `gemma4:26b` as an example; choose another if it fits your machine
+> better.
+
+Warm the model once after launching Ollama (the first call is a slow cold load):
+
+```powershell
+ollama run gemma4:26b "hi"
+```
+
+Then set `CLAUDISH_MODEL` in the `env` block of your `settings.json` (see
+[Configuring the plugin](#configuring-the-plugin) — that method is identical on
+Windows), or for a one-off session from PowerShell:
+
+```powershell
+$env:CLAUDISH_MODEL = "gemma4:26b"; claude
+```
+
+Windows equivalents of the mid-session kill switch
+([Toggling mid-session](#toggling-mid-session)):
+
+```powershell
+New-Item -ItemType File $HOME\.claude\claudish-off   # pause rewrites
+Remove-Item $HOME\.claude\claudish-off               # resume
+```
+
+(In Git Bash the `touch`/`rm` commands from that section work as-is.)
+
+Notes:
+- Write `CLAUDISH_MD_DIR` with forward slashes
+(`C:/dev/docs/plain`) so the bash-side path checks match
+- The `CLAUDISH_DEBUG=1` log lands under Git Bash's temp directory
+(`$TMPDIR/claudish-to-english/`, typically
+`C:\Users\<you>\AppData\Local\Temp\claudish-to-english\`).
+
+</details>
 
 ---
 
@@ -233,13 +300,19 @@ ollama, nothing leaves your machine.
 > want the plugin on a dedicated key.
 
 ```bash
-# Anthropic
+# ollama (default) — local, nothing leaves your machine
+export CLAUDISH_PROVIDER=ollama
+export CLAUDISH_MODEL=gemma4:26b-mlx        # the default; any pulled tag works
+
+# Anthropic — Claude Haiku
 export CLAUDISH_PROVIDER=anthropic
 export ANTHROPIC_API_KEY=sk-ant-...
+export CLAUDISH_MODEL=claude-haiku-4-5      # the default; override to taste
 
-# OpenAI
+# OpenAI — GPT-5.6 Luna
 export CLAUDISH_PROVIDER=openai
 export OPENAI_API_KEY=sk-...
+export CLAUDISH_MODEL=gpt-5.6-luna          # the default; override to taste
 
 # Any OpenAI-compatible server (LM Studio, llama.cpp server, vLLM, OpenRouter).
 # A key is only required for api.openai.com — local servers work keyless.
@@ -282,7 +355,7 @@ Notes:
 | `CLAUDISH_OFF_FILE` | `~/.claude/claudish-off` | Runtime kill switch. While this file exists, rewrites pause — re-checked every message, so unlike env vars it works mid-session. See [Toggling mid-session](#toggling-mid-session). |
 | `CLAUDISH_MODE` | `append` | `append` or `replace` (display hook). |
 | `CLAUDISH_PROVIDER` | `ollama` | `ollama`, `anthropic`, or `openai` — which LLM serves rewrites (both hooks). |
-| `CLAUDISH_MODEL` | *(per provider)* | Model name; overrides the provider default (see [Providers](#providers)). |
+| `CLAUDISH_MODEL` | *(per provider)* | Model name; overrides the provider default (see [Providers](#providers)). The ollama default `gemma4:26b-mlx` is MLX (Apple-silicon only; Windows users must override). |
 | `CLAUDISH_OLLAMA` | `http://localhost:11434` | ollama base URL. |
 | `CLAUDISH_ANTHROPIC_KEY` | *(unset)* | Anthropic API key; falls back to `ANTHROPIC_API_KEY`. |
 | `CLAUDISH_OPENAI_KEY` | *(unset)* | OpenAI(-compatible) API key; falls back to `OPENAI_API_KEY`. Only required for api.openai.com. |
