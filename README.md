@@ -214,8 +214,21 @@ ollama, nothing leaves your machine.
 | Provider | Endpoint | Key | Default model |
 |---|---|---|---|
 | `ollama` (default) | `CLAUDISH_OLLAMA` (`http://localhost:11434`) | none | `gemma4:26b-mlx` |
-| `anthropic` | api.anthropic.com Messages API | `CLAUDISH_ANTHROPIC_KEY` or `ANTHROPIC_API_KEY` | `claude-haiku-4-5` |
+| `anthropic` | `CLAUDISH_ANTHROPIC_URL` (`https://api.anthropic.com`) + `/v1/messages` | `CLAUDISH_ANTHROPIC_KEY` or `ANTHROPIC_API_KEY` | `claude-haiku-4-5` |
 | `openai` | `CLAUDISH_OPENAI_URL` + `/chat/completions` | `CLAUDISH_OPENAI_KEY` or `OPENAI_API_KEY` | `gpt-5.6-luna` |
+
+> [!CAUTION]
+> The cloud providers pick their key up from the **ambient environment**
+> (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`), and `CLAUDISH_OPENAI_URL` defaults
+> to api.openai.com. Claude Code automatically loads a project's `.env` file
+> into the session environment — so in a project whose `.env` already contains
+> `OPENAI_API_KEY`, setting the single variable `CLAUDISH_PROVIDER=openai`
+> starts sending every assistant message (and, with the Markdown hook, file
+> contents) to OpenAI's cloud. Likewise, `CLAUDISH_PROVIDER=anthropic` will
+> quietly spend the same `ANTHROPIC_API_KEY` (and share its rate limits) that
+> other tools on your machine may rely on. Selecting a cloud provider IS the
+> consent switch — set it only when you mean it, and use the `CLAUDISH_*_KEY`
+> variables when you want the plugin on a dedicated key.
 
 ```bash
 # Anthropic
@@ -239,9 +252,15 @@ Notes:
 - Requests to api.openai.com send `reasoning_effort: "none"` (GPT-5.6-class
   models otherwise spend reasoning tokens on a plain rewrite). Custom
   OpenAI-compatible URLs get no such field, since some local servers reject
-  unknown fields. Force one with `CLAUDISH_OPENAI_EFFORT`.
+  unknown fields. Force one with `CLAUDISH_OPENAI_EFFORT`, or set it
+  **explicitly empty** (`CLAUDISH_OPENAI_EFFORT=`) to omit the field even for
+  api.openai.com — needed for models that reject `reasoning_effort` entirely.
 - The anthropic provider caps completions at `CLAUDISH_MAX_TOKENS` (default
   4096, since the Messages API requires an explicit cap).
+- A rewrite that hits an output-token cap is **discarded**, not shown: a
+  half-finished rewrite on screen is confusing, and in the Markdown hook's
+  `overwrite` mode it would replace your real document. You get the original
+  text plus the once-per-session notice suggesting a higher cap.
 - Every provider failure stays fail-open: missing key, bad key, unreachable
   endpoint, or timeout just leaves the original text (plus the once-per-session
   notice, unless `CLAUDISH_NOTICE=0`).
@@ -264,9 +283,10 @@ Notes:
 | `CLAUDISH_OLLAMA` | `http://localhost:11434` | ollama base URL. |
 | `CLAUDISH_ANTHROPIC_KEY` | *(unset)* | Anthropic API key; falls back to `ANTHROPIC_API_KEY`. |
 | `CLAUDISH_OPENAI_KEY` | *(unset)* | OpenAI(-compatible) API key; falls back to `OPENAI_API_KEY`. Only required for api.openai.com. |
-| `CLAUDISH_OPENAI_URL` | `https://api.openai.com/v1` | Base URL for any OpenAI-compatible endpoint (LM Studio, llama.cpp server, vLLM, OpenRouter, ...). |
-| `CLAUDISH_OPENAI_EFFORT` | `none` on api.openai.com, else *(unset)* | `reasoning_effort` sent with openai-provider requests. |
-| `CLAUDISH_MAX_TOKENS` | `4096` | Completion cap for the anthropic provider. |
+| `CLAUDISH_OPENAI_URL` | `https://api.openai.com/v1` | Base URL for any OpenAI-compatible endpoint (LM Studio, llama.cpp server, vLLM, OpenRouter, ...). Trailing slashes are ignored. |
+| `CLAUDISH_ANTHROPIC_URL` | `https://api.anthropic.com` | Base URL for the anthropic provider — override for proxies/gateways that speak the Messages API. |
+| `CLAUDISH_OPENAI_EFFORT` | `none` on api.openai.com, else *(unset)* | `reasoning_effort` sent with openai-provider requests. Set explicitly empty to omit the field. |
+| `CLAUDISH_MAX_TOKENS` | `4096` | Completion cap for the anthropic provider. Rewrites that hit the cap are discarded (fail-open), with a notice to raise it. |
 | `CLAUDISH_MIN_CHARS` | `200` | Skip messages/files whose prose (code stripped) is shorter than this. |
 | `CLAUDISH_STUB` | `0` | `1` = deterministic stub instead of the model (for testing display mechanics). |
 | `CLAUDISH_TIMEOUT` | `45` | LLM client timeout for the **display** hook (seconds). Keep it below that hook's `timeout` (60s). |
