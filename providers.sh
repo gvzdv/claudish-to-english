@@ -53,6 +53,10 @@
 
 PROVIDER="${CLAUDISH_PROVIDER:-ollama}"
 OLLAMA="${CLAUDISH_OLLAMA:-http://localhost:11434}"
+# CLAUDISH_ANTHROPIC_AUTH=oauth borrows the Claude Code login: the access token
+# is re-read from ~/.claude/.credentials.json on EVERY call (Claude Code
+# refreshes it while running, and this hook only ever fires while it runs).
+ANTHROPIC_AUTH="${CLAUDISH_ANTHROPIC_AUTH:-}"
 ANTHROPIC_KEY="${CLAUDISH_ANTHROPIC_KEY:-${ANTHROPIC_API_KEY:-}}"
 OPENAI_KEY="${CLAUDISH_OPENAI_KEY:-${OPENAI_API_KEY:-}}"
 OPENAI_URL="${CLAUDISH_OPENAI_URL:-https://api.openai.com/v1}"
@@ -130,12 +134,24 @@ llm_complete() {
   hdrfile=""; cfgerr=0
   case "$PROVIDER" in
     anthropic)
+      _oauth_beta=()
+      if [ "$ANTHROPIC_AUTH" = "oauth" ]; then
+        # sed, not jq: the token read must work even where jq is missing.
+        ANTHROPIC_KEY="$(sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p' \
+                        "$HOME/.claude/.credentials.json" 2>/dev/null)"
+      fi
       if [ -z "$ANTHROPIC_KEY" ]; then dbg "anthropic: no key"; curl_rc=1; return 0; fi
       # No temperature: current Anthropic models reject sampling parameters.
       req="$(jq -n --arg m "$MODEL" --argjson t "$MAX_TOKENS" --arg s "$_sys" --arg u "$_user" \
             '{model:$m,max_tokens:$t,system:$s,messages:[{role:"user",content:$u}]}' 2>/dev/null)"
       [ -n "$req" ] || return 2
-      hdrfile="$(_llm_key_file "x-api-key" "$ANTHROPIC_KEY")"
+      if [ "$ANTHROPIC_AUTH" = "oauth" ]; then
+        # OAuth tokens ride Authorization: Bearer and need the oauth beta flag.
+        hdrfile="$(_llm_key_file "Authorization" "Bearer $ANTHROPIC_KEY")"
+        _oauth_beta=(-H 'anthropic-beta: oauth-2025-04-20')
+      else
+        hdrfile="$(_llm_key_file "x-api-key" "$ANTHROPIC_KEY")"
+      fi
       if [ -z "$hdrfile" ]; then
         cfgerr=1
         err="could not create a private temp file for the API key under ${TMPDIR:-/tmp} — nothing was sent"
@@ -148,6 +164,7 @@ llm_complete() {
       resp="$(printf '%s' "$req" | curl -sS --max-time "$LLM_TIMEOUT" -w '\n%{http_code}' \
               -K "$hdrfile" -H 'Content-Type: application/json' \
               -H 'anthropic-version: 2023-06-01' \
+              ${_oauth_beta[@]+"${_oauth_beta[@]}"} \
               -X POST "$ANTHROPIC_URL/v1/messages" -d @- 2>/dev/null)"
       curl_rc=$?
       rm -f "$hdrfile" 2>/dev/null
@@ -272,7 +289,9 @@ llm_notice_why() {
   NOTICE_WHY=""
   case "$PROVIDER" in
     anthropic)
-      if [ -z "$ANTHROPIC_KEY" ]; then
+      if [ "$ANTHROPIC_AUTH" = "oauth" ] && [ -z "$ANTHROPIC_KEY" ]; then
+        NOTICE_WHY="could not read the Claude Code access token from ~/.claude/.credentials.json, so rewrites are off"
+      elif [ -z "$ANTHROPIC_KEY" ]; then
         NOTICE_WHY="no Anthropic API key in this session's environment (set CLAUDISH_ANTHROPIC_KEY or ANTHROPIC_API_KEY), so rewrites are off"
       elif [ "${cfgerr:-0}" = "1" ]; then
         NOTICE_WHY="${err:-provider configuration error}"
