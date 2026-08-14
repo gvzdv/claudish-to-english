@@ -13,8 +13,12 @@ API**, or any **OpenAI-compatible API**. It is **display-only**:
 Claude's own reasoning and the saved transcript keep the original text — only
 what you read on screen changes.
 
-An optional second hook rewrites **Markdown files** into plain English when they
-are written or edited (opt-in, off by default).
+If your session speaks something other than English, so does the rewrite: it
+follows the message's own language, or the `language` setting Claude Code
+already answers in. See [Output language](#output-language).
+
+An optional second hook rewrites **Markdown files** into plain language when
+they are written or edited (opt-in, off by default).
 
 > Status: working prototype. Every hook fails **open** — if anything goes wrong
 > (provider down, timeout, missing key or dependency), you simply see Claude's
@@ -199,10 +203,47 @@ To confirm the hook is firing, set `CLAUDISH_DEBUG=1` and watch
 
 ---
 
+## Output language
+
+The rewrite comes back in the **same language as the text it rewrites**. An
+Esperanto answer is simplified into Esperanto, an English one into English;
+nothing is translated unless you ask for it.
+
+To pin a language, set one. The hooks read the same `language` key Claude Code
+itself answers in, in the same order of precedence, so a session that already
+speaks Esperanto needs no extra configuration:
+
+| Source | Example |
+|---|---|
+| `CLAUDISH_LANG` (env) | `"CLAUDISH_LANG": "Esperanto"` |
+| `<project>/.claude/settings.local.json` | `"language": "Esperanto"` |
+| `<project>/.claude/settings.json` | `"language": "Esperanto"` |
+| `~/.claude/settings.json` | `"language": "Esperanto"` |
+
+The first one that is set wins, and the on-screen label then names it:
+`💬 In plain Esperanto:`. `CLAUDISH_LANG` set but **empty** ignores the settings
+key and goes back to following the input's language; set it to `English` to
+force English on a non-English session.
+
+A configured language is appended to the built-in prompt. A prompt supplied
+through `CLAUDISH_PROMPT_FILE` or `CLAUDISH_MD_PROMPT_FILE` replaces the whole
+prompt, language line included — that file is your prompt in full, and it
+states its own language (see below).
+
+An unreadable, malformed, or non-string setting is ignored the way every other
+failure here is: rewrites keep working, in the input's language.
+
+One caveat: a rewrite is only as good as the model that writes it, and small
+local models simplify English noticeably better than they simplify anything
+else. If non-English results disappoint, try a larger model or a cloud provider
+(see [Providers](#providers)).
+
+---
+
 ## Customizing the rewrite prompt
 
 Each hook ships with a default system prompt that asks the model for plain
-English while preserving facts, code, and structure. You can **replace** either
+language while preserving facts, code, and structure. You can **replace** either
 prompt with your own to add specific rules or use wording that works
 better with your model. To do so, point the hook at a file that holds
 the prompt:
@@ -261,7 +302,7 @@ rewrites the assistant's message.
 
 | `CLAUDISH_MODE` | On screen | Notes |
 |---|---|---|
-| `append` (default) | Original streams normally, then a `💬 In plain English:` block is appended. | Safest. No streaming loss; if the LLM fails you just don't get the extra block. |
+| `append` (default) | Original streams normally, then a `💬 In plain language:` block is appended (`💬 In plain Esperanto:` when a language is configured). | Safest. No streaming loss; if the LLM fails you just don't get the extra block. |
 | `replace` | Only the simplified version (original chunks suppressed while streaming). | Experimental. Appears all at once after LLM latency; on failure it re-shows the full original. |
 
 ---
@@ -269,7 +310,7 @@ rewrites the assistant's message.
 ## Markdown file rewrite (optional second hook)
 
 A `PostToolUse` hook (`rewrite-md.sh`) rewrites Markdown **files** into plain
-English when they are written or edited. Unlike the display hook, this changes
+language when they are written or edited. Unlike the display hook, this changes
 bytes on disk.
 
 **Opt-in by directory.** It does nothing unless `CLAUDISH_MD_DIR` is set, and it
@@ -391,6 +432,7 @@ Notes:
 | `CLAUDISH_OFF_FILE` | `~/.claude/claudish-off` | Runtime kill switch. While this file exists, rewrites pause — re-checked every message, so unlike env vars it works mid-session. See [Toggling mid-session](#toggling-mid-session). |
 | `CLAUDISH_MODE` | `append` | `append` or `replace` (display hook). |
 | `CLAUDISH_PROMPT_FILE` | *(unset)* | Path to a file whose contents replace the display hook's system prompt (whole prompt, not merged). Empty/unreadable falls back to the built-in default. See [Customizing the rewrite prompt](#customizing-the-rewrite-prompt). |
+| `CLAUDISH_LANG` | *(unset)* | Language to rewrite into, e.g. `Esperanto`. Unset falls back to the `language` key in `.claude/settings*.json`; with neither set, the rewrite keeps the input's language. Empty ignores the settings key; `English` forces English. See [Output language](#output-language). |
 | `CLAUDISH_PROVIDER` | `ollama` | `ollama`, `anthropic`, or `openai` — which LLM serves rewrites (both hooks). |
 | `CLAUDISH_MODEL` | *(per provider)* | Model name; overrides the provider default (see [Providers](#providers)). The ollama default `gemma4:26b-mlx` is MLX (Apple-silicon only; Windows users must override). |
 | `CLAUDISH_OLLAMA` | `http://localhost:11434` | ollama base URL. |
@@ -473,6 +515,7 @@ claudish-to-english/
 ├── rewrite.sh              # display-rewrite hook
 ├── rewrite-md.sh           # markdown-file rewrite hook (opt-in)
 ├── providers.sh            # provider layer (ollama/anthropic/openai), sourced by both hooks
+├── lang.sh                 # output-language resolver (env + .claude/settings*.json), sourced by both hooks
 ├── CHANGELOG.md            # notable changes per version (Keep a Changelog)
 ├── LICENSE
 └── README.md

@@ -5,6 +5,25 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-08-14
+
+### Added
+- Output language. A rewrite can be pinned to a language with `CLAUDISH_LANG`,
+  or with the `language` key in `.claude/settings*.json` — the same key Claude
+  Code answers in, read in the same order of precedence (`lang.sh`). The
+  on-screen label then names it: `💬 In plain Esperanto:`. An empty
+  `CLAUDISH_LANG` ignores the settings key; `English` forces English.
+
+### Changed
+- The built-in prompts no longer hard-code English. They ask for plain
+  language in the language the input is already written in, so an Esperanto
+  session gets an Esperanto rewrite instead of an English one. Set
+  `CLAUDISH_LANG=English` to keep the previous behaviour. A prompt supplied
+  through `CLAUDISH_PROMPT_FILE` / `CLAUDISH_MD_PROMPT_FILE` is unaffected: it
+  still replaces the whole prompt.
+- With no language configured, the display label reads `💬 In plain language:`
+  rather than `💬 In plain English:`, which it can no longer promise.
+
 ## [0.3.0] - 2026-08-13
 
 ### Added
@@ -56,6 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional `PostToolUse` Markdown-file rewrite hook (`rewrite-md.sh`), opt-in by
   directory (`CLAUDISH_MD_DIR`), with `sibling` and `overwrite` modes.
 
+[0.4.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/gvzdv/claudish-to-english/compare/v0.1.0...v0.1.1

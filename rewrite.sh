@@ -34,6 +34,16 @@
 #   CLAUDISH_PROMPT_FILE <path>       file holding a replacement rewrite prompt
 #                                          (whole prompt, not merged; empty or
 #                                          unreadable -> built-in default)
+#   CLAUDISH_LANG      <language>     language to rewrite into, e.g. "Esperanto".
+#                                          Unset falls back to the session's
+#                                          `language` setting from
+#                                          .claude/settings*.json (the same key
+#                                          Claude Code answers in); with neither
+#                                          set, the rewrite simply keeps the
+#                                          language of the message it rewrites.
+#                                          Set it EMPTY to ignore the settings
+#                                          key, or to "English" to force
+#                                          English. See lang.sh
 #   CLAUDISH_PROVIDER  ollama|anthropic|openai  which LLM serves rewrites
 #                                           (default ollama; keys, base URLs,
 #                                           and per-provider model defaults
@@ -66,7 +76,8 @@ DEBUG="${CLAUDISH_DEBUG:-0}"
 NOTICE="${CLAUDISH_NOTICE:-1}"
 
 BUF_ROOT="${TMPDIR:-/tmp}/claudish-to-english"
-SEP=$'\n\n────────────────────────\n💬 In plain English:\n\n'
+# SEP (the on-screen label above the rewrite) names the configured output
+# language, so it is built on the final chunk, once that language is known.
 
 mkdir -p "$BUF_ROOT" 2>/dev/null || true
 
@@ -75,9 +86,17 @@ dbg() { [ "$DEBUG" = "1" ] && printf '%s [%s] %s\n' "$(date '+%H:%M:%S')" "$$" "
 # Fail-open: keep the original delta on screen.
 pass_through() { dbg "pass_through"; exit 0; }
 
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # Provider layer (ollama/anthropic/openai): MODEL/OLLAMA defaults,
 # llm_complete, llm_notice_why. Missing file -> fail open.
-. "$(cd "$(dirname "$0")" && pwd)/providers.sh" 2>/dev/null || pass_through
+. "$SELF_DIR/providers.sh" 2>/dev/null || pass_through
+
+# Output-language resolver (lang.sh). Defined here first so a missing file
+# degrades to "no configured language" — the rewrite then keeps the message's
+# own language — instead of stopping rewrites.
+claudish_language() { :; }
+. "$SELF_DIR/lang.sh" 2>/dev/null || dbg "no lang.sh; keeping the message's language"
 
 # Replace this chunk's on-screen text with $1 (a temp file, read and then
 # removed here — the opportunistic find below only sweeps buffer DIRECTORIES,
@@ -108,6 +127,11 @@ sid="$(printf '%s' "$payload"   | jq -r '.session_id // "nosession"' 2>/dev/null
 idx="$(printf '%s' "$payload"   | jq -r '(.index // 0) | tostring' 2>/dev/null)"
 final="$(printf '%s' "$payload" | jq -r '.final // false' 2>/dev/null)"
 tpath="$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null)"
+# Only used to find project-level .claude/settings*.json; the hook already runs
+# in the session's directory, so $PWD is a fine fallback when the event carries
+# no cwd of its own.
+cwd="$(printf '%s' "$payload"   | jq -r '.cwd // empty' 2>/dev/null)"
+[ -d "$cwd" ] || cwd="$PWD"
 [ -n "$mid" ] || pass_through
 case "$idx" in ''|*[!0-9]*) idx=0 ;; esac
 
@@ -154,6 +178,14 @@ if [ "${prose_len:-0}" -lt "$MIN_CHARS" ]; then
   pass_through
 fi
 
+# ---- output language ------------------------------------------------------
+# Resolved on the final chunk only: it reads settings files, and nothing before
+# here needs it. Empty -> the rewrite follows the language of the message, so
+# the label must not claim one either.
+OUT_LANG="$(claudish_language "$cwd")"
+SEP=$'\n\n────────────────────────\n💬 In plain '"${OUT_LANG:-language}"$':\n\n'
+dbg "language=${OUT_LANG:-same as the message (default)}"
+
 # ---- obtain the rewrite --------------------------------------------------
 rewrite=""
 curl_rc=0
@@ -166,7 +198,15 @@ else
   # Base system prompt, replaceable via CLAUDISH_PROMPT_FILE (a file holding the
   # whole prompt). An unset/empty/unreadable file falls back to this default, so
   # a bad path never stops rewrites — it just uses the built-in prompt.
-  sys="You rewrite the assistant's message into much simpler, plain English. Keep every fact, name, number, and file path. Use short sentences and everyday words. Leave fenced code blocks unchanged. Output ONLY the rewritten message with no preamble, labels, or commentary."
+  sys="You rewrite the assistant's message into much simpler, plain language. Write the rewrite in the same language as the message you are rewriting. Keep every fact, name, number, and file path. Use short sentences and everyday words. Leave fenced code blocks unchanged. Output ONLY the rewritten message with no preamble, labels, or commentary."
+  # A configured language overrides "same language as the message" — it is the
+  # last word in the prompt, and it names the language explicitly. The line goes
+  # on BEFORE the prompt-file check on purpose: a usable CLAUDISH_PROMPT_FILE
+  # replaces the whole prompt, this line included. That file is the user's
+  # prompt in full, and it states its own language.
+  if [ -n "$OUT_LANG" ]; then
+    sys="$sys"$'\n\n'"Write the rewrite in $OUT_LANG instead, whatever language the assistant's message is in. Use $OUT_LANG for all prose, including headings and lists. Keep code, identifiers, file paths, commands, and quoted output exactly as they are."
+  fi
   if [ -n "${CLAUDISH_PROMPT_FILE:-}" ]; then
     _p=""
     [ -r "$CLAUDISH_PROMPT_FILE" ] && _p="$(cat "$CLAUDISH_PROMPT_FILE" 2>/dev/null)"
