@@ -8,8 +8,8 @@
 </p>
 
 A Claude Code plugin that shows a **plain-English rewrite** of each assistant
-message, produced by a **local LLM via ollama** (default), the **Anthropic
-API**, or any **OpenAI-compatible API**. It is **display-only**:
+message, produced by a **local LLM via ollama** (default), the **codex CLI**,
+the **Anthropic API**, or any **OpenAI-compatible API**. It is **display-only**:
 Claude's own reasoning and the saved transcript keep the original text — only
 what you read on screen changes.
 
@@ -309,6 +309,15 @@ frontmatter, so the frontmatter stays on line 1 where parsers expect it.
 ---
 
 ## Providers
+
+### codex
+
+`CLAUDISH_PROVIDER=codex` runs the rewrite through the OpenAI codex CLI
+(`codex exec`, read-only sandbox, outside any repo), using the CLI's own
+login. No API key and no local model server. `CLAUDISH_MODEL` overrides
+the CLI's configured model; unset uses the CLI default. Requires `codex`
+on PATH; fails open like every other provider.
+
 
 Rewrites go through one of three providers, selected with `CLAUDISH_PROVIDER`
 (both hooks share the setting). The default is unchanged from upstream: local
