@@ -184,8 +184,13 @@ llm_complete() {
       trap 'rm -f "$_out" "$_errf" 2>/dev/null' EXIT
       # codex has no separate system channel; prepend the system prompt.
       # No timeout(1) on stock macOS, so background the call and kill on expiry.
+      # CLAUDISH_CODEX_EFFORT overrides the CLI's configured reasoning effort
+      # for the rewrite only ("low" keeps a per-message rewrite at seconds
+      # even when the CLI's coding default is a high-effort tier).
       codex exec --sandbox read-only --skip-git-repo-check -C "${TMPDIR:-/tmp}" \
-        ${MODEL:+-m "$MODEL"} -o "$_out" "$_sys
+        ${MODEL:+-m "$MODEL"} \
+        ${CLAUDISH_CODEX_EFFORT:+-c "model_reasoning_effort=${CLAUDISH_CODEX_EFFORT}"} \
+        -o "$_out" "$_sys
 
 $_user" >/dev/null 2>"$_errf" &
       _pid=$!
