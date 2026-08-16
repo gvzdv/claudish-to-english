@@ -21,12 +21,35 @@
 #              CLI's own login, so no API key and no local model server. The
 #              rewrite runs with --sandbox read-only outside any repo.
 #   anthropic  Anthropic Messages API; key from CLAUDISH_ANTHROPIC_KEY or
-#              ANTHROPIC_API_KEY; base URL from CLAUDISH_ANTHROPIC_URL
+#              ANTHROPIC_API_KEY (the latter only when CLAUDISH_ALLOW_AMBIENT_KEYS=1);
+#              base URL from CLAUDISH_ANTHROPIC_URL
 #   openai     any OpenAI-compatible /chat/completions endpoint (OpenAI,
 #              LM Studio, llama.cpp server, vLLM, OpenRouter, ...); base URL
 #              from CLAUDISH_OPENAI_URL, key from CLAUDISH_OPENAI_KEY or
-#              OPENAI_API_KEY. A key is only required for the default
-#              api.openai.com URL — local servers work keyless.
+#              OPENAI_API_KEY (the latter only when CLAUDISH_ALLOW_AMBIENT_KEYS=1).
+#              A key is only required for the default api.openai.com URL —
+#              local servers work keyless.
+#
+# Mutual TLS (optional, additive — all three vars unset = same behavior as before):
+#   CLAUDISH_CLIENT_CERT     PEM-format client certificate (path); combined cert+key
+#                            PEM is accepted here as well as a separate file
+#   CLAUDISH_CLIENT_KEY      PEM-format client private key (path), if not combined
+#                            with the cert
+#   CLAUDISH_CA_BUNDLE       PEM-format CA bundle to trust the endpoint certificate
+#                            against (if unset, the system trust store is used)
+#   The three flags above are passed to every curl invocation via --cert,
+#   --key, --cacert, in that order, exactly once each, regardless of provider.
+#   This is the minimum needed to talk to a fleet endpoint terminated by a
+#   vLLM server using --ssl-certfile / --ssl-keyfile / --ssl-ca-certs /
+#   --ssl-cert-reqs 2 (or any reverse proxy that requires a client cert).
+#
+# Ambient key opt-in (security; default off):
+#   CLAUDISH_ALLOW_AMBIENT_KEYS=1  permit fallback to ANTHROPIC_API_KEY /
+#                                  OPENAI_API_KEY when CLAUDISH_ANTHROPIC_KEY /
+#                                  CLAUDISH_OPENAI_KEY is unset. Default unset
+#                                  (silent fleet-leak guard: a direnv or shell
+#                                  profile that exports these will NOT cause
+#                                  every rewrite to ship to a third-party cloud).
 #
 # Extra config:
 #   CLAUDISH_MODEL          overrides the per-provider default model
@@ -62,8 +85,17 @@ OLLAMA="${CLAUDISH_OLLAMA:-http://localhost:11434}"
 # https://api.anthropic.com: oauth mode refuses to run with a
 # CLAUDISH_ANTHROPIC_URL override, so the credential cannot leak to a proxy.
 ANTHROPIC_AUTH="${CLAUDISH_ANTHROPIC_AUTH:-}"
-ANTHROPIC_KEY="${CLAUDISH_ANTHROPIC_KEY:-${ANTHROPIC_API_KEY:-}}"
-OPENAI_KEY="${CLAUDISH_OPENAI_KEY:-${OPENAI_API_KEY:-}}"
+# Ambient-key fallback is OFF by default. A shell profile, direnv, or any
+# environment that already exports ANTHROPIC_API_KEY or OPENAI_API_KEY would
+# otherwise ship every rewrite silently to that cloud. Set
+# CLAUDISH_ALLOW_AMBIENT_KEYS=1 to opt back into the previous behavior.
+if [ "${CLAUDISH_ALLOW_AMBIENT_KEYS:-0}" = "1" ]; then
+  ANTHROPIC_KEY="${CLAUDISH_ANTHROPIC_KEY:-${ANTHROPIC_API_KEY:-}}"
+  OPENAI_KEY="${CLAUDISH_OPENAI_KEY:-${OPENAI_API_KEY:-}}"
+else
+  ANTHROPIC_KEY="${CLAUDISH_ANTHROPIC_KEY:-}"
+  OPENAI_KEY="${CLAUDISH_OPENAI_KEY:-}"
+fi
 OPENAI_URL="${CLAUDISH_OPENAI_URL:-https://api.openai.com/v1}"
 ANTHROPIC_URL="${CLAUDISH_ANTHROPIC_URL:-https://api.anthropic.com}"
 MAX_TOKENS="${CLAUDISH_MAX_TOKENS:-4096}"
@@ -137,6 +169,13 @@ llm_complete() {
   _sys="$1"; _user="$2"
   rewrite=""; curl_rc=0; err=""; resp=""; http=""; finish=""; truncated=0
   hdrfile=""; cfgerr=0
+  # Build the optional mTLS flag list exactly once per call. With all three
+  # vars unset the array is empty and ${arr[@]+...} expansion yields nothing,
+  # so the curl argv is byte-for-byte unchanged from upstream v0.3.0.
+  CURL_TLS=()
+  [ -n "${CLAUDISH_CLIENT_CERT:-}" ] && CURL_TLS+=(--cert "${CLAUDISH_CLIENT_CERT}")
+  [ -n "${CLAUDISH_CLIENT_KEY:-}"  ] && CURL_TLS+=(--key  "${CLAUDISH_CLIENT_KEY}")
+  [ -n "${CLAUDISH_CA_BUNDLE:-}"   ] && CURL_TLS+=(--cacert "${CLAUDISH_CA_BUNDLE}")
   case "$PROVIDER" in
     anthropic)
       _oauth_hdrs=()
@@ -225,6 +264,7 @@ llm_complete() {
       # in the path (it is always set — reset to "" at the top of this call).
       trap 'rm -f "$hdrfile" 2>/dev/null' EXIT
       resp="$(printf '%s' "$req" | curl -sS --max-time "$LLM_TIMEOUT" -w '\n%{http_code}' \
+              ${CURL_TLS[@]+"${CURL_TLS[@]}"} \
               -K "$hdrfile" -H 'Content-Type: application/json' \
               -H 'anthropic-version: 2023-06-01' \
               ${_oauth_hdrs[@]+"${_oauth_hdrs[@]}"} \
@@ -260,6 +300,7 @@ llm_complete() {
         auth=(-K "$hdrfile")
       fi
       resp="$(printf '%s' "$req" | curl -sS --max-time "$LLM_TIMEOUT" -w '\n%{http_code}' \
+              ${CURL_TLS[@]+"${CURL_TLS[@]}"} \
               -H 'Content-Type: application/json' ${auth[@]+"${auth[@]}"} \
               -X POST "$OPENAI_URL/chat/completions" -d @- 2>/dev/null)"
       curl_rc=$?
@@ -314,6 +355,7 @@ $_user" >/dev/null 2>"$_errf" &
             '{model:$m,stream:false,think:false,options:{temperature:0.3},messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null)"
       [ -n "$req" ] || return 2
       resp="$(printf '%s' "$req" | curl -sS --max-time "$LLM_TIMEOUT" \
+              ${CURL_TLS[@]+"${CURL_TLS[@]}"} \
               -H 'Content-Type: application/json' -X POST "$OLLAMA/api/chat" -d @- 2>/dev/null)"
       curl_rc=$?
       rewrite="$(printf '%s' "$resp" | jq -j '.message.content // empty' 2>/dev/null)"
@@ -361,7 +403,7 @@ llm_notice_why() {
       elif [ "$ANTHROPIC_AUTH" = "oauth" ] && [ -z "$ANTHROPIC_KEY" ]; then
         NOTICE_WHY="could not read a fresh Claude Code access token (macOS login Keychain, or ~/.claude/.credentials.json elsewhere) — check that Claude Code is logged in; rewrites are off"
       elif [ -z "$ANTHROPIC_KEY" ]; then
-        NOTICE_WHY="no Anthropic API key in this session's environment (set CLAUDISH_ANTHROPIC_KEY or ANTHROPIC_API_KEY), so rewrites are off"
+        NOTICE_WHY="no Anthropic API key in this session's environment (set CLAUDISH_ANTHROPIC_KEY, or ANTHROPIC_API_KEY together with CLAUDISH_ALLOW_AMBIENT_KEYS=1), so rewrites are off"
       elif [ "${truncated:-0}" = "1" ]; then
         NOTICE_WHY="the rewrite hit the ${MAX_TOKENS}-token output cap and was discarded rather than shown half-finished — raise CLAUDISH_MAX_TOKENS"
       elif [ -n "${err:-}" ]; then
@@ -374,7 +416,7 @@ llm_notice_why() {
       ;;
     openai)
       if [ -z "$OPENAI_KEY" ] && [ "$OPENAI_URL" = "https://api.openai.com/v1" ]; then
-        NOTICE_WHY="no OpenAI API key in this session's environment (set CLAUDISH_OPENAI_KEY or OPENAI_API_KEY), so rewrites are off"
+        NOTICE_WHY="no OpenAI API key in this session's environment (set CLAUDISH_OPENAI_KEY, or OPENAI_API_KEY together with CLAUDISH_ALLOW_AMBIENT_KEYS=1), so rewrites are off"
       elif [ "${cfgerr:-0}" = "1" ]; then
         NOTICE_WHY="${err:-provider configuration error}"
       elif [ "${truncated:-0}" = "1" ]; then

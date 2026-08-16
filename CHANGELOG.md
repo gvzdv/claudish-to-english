@@ -5,6 +5,24 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Optional mutual-TLS client authentication for any provider. Three new env
+  vars, all unset by default (additive — no behavior change when unset):
+  - `CLAUDISH_CLIENT_CERT` — passed as `--cert` to every curl call.
+  - `CLAUDISH_CLIENT_KEY` — passed as `--key` when set.
+  - `CLAUDISH_CA_BUNDLE` — passed as `--cacert` for custom trust roots.
+  This is the minimum shape needed to talk to a fleet endpoint terminated by a
+  vLLM server using `--ssl-certfile --ssl-keyfile --ssl-ca-certs
+  --ssl-cert-reqs 2`, or any reverse proxy with the same posture.
+
+### Changed (security)
+- Ambient `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` fallback is OFF by default. A
+  fleet member with a shell profile, direnv, or any environment that exports
+  those names will NOT silently ship every rewrite to a third-party cloud. Set
+  `CLAUDISH_ALLOW_AMBIENT_KEYS=1` to opt back into the previous behavior.
+
 ## [0.9.0] - 2026-08-28
 
 ### Added
@@ -200,6 +218,7 @@ by Davide Di Pumpo, adapted to the provider layer and language resolver.
   still replaces the whole prompt.
 - With no language configured, the display label reads `💬 In plain language:`
   rather than `💬 In plain English:`, which it can no longer promise.
+||||||| parent of 46e7964 (providers.sh: additive mutual TLS plumbing + ambient-key opt-in)
 
 ## [0.3.0] - 2026-08-13
 

@@ -446,8 +446,8 @@ ollama, nothing leaves your machine.
 |---|---|---|---|
 | `ollama` (default) | `CLAUDISH_OLLAMA` (`http://localhost:11434`) | none | `gemma4:26b-mlx` |
 | `codex` | OpenAI codex CLI (`codex exec`) — uses the CLI's own login | none | *(CLI default)* |
-| `anthropic` | `CLAUDISH_ANTHROPIC_URL` (`https://api.anthropic.com`) + `/v1/messages` | `CLAUDISH_ANTHROPIC_KEY` or `ANTHROPIC_API_KEY` | `claude-haiku-4-5` |
-| `openai` | `CLAUDISH_OPENAI_URL` + `/chat/completions` | `CLAUDISH_OPENAI_KEY` or `OPENAI_API_KEY` | `gpt-5.6-luna` |
+| `anthropic` | `CLAUDISH_ANTHROPIC_URL` (`https://api.anthropic.com`) + `/v1/messages` | `CLAUDISH_ANTHROPIC_KEY` (or `ANTHROPIC_API_KEY` with `CLAUDISH_ALLOW_AMBIENT_KEYS=1`) | `claude-haiku-4-5` |
+| `openai` | `CLAUDISH_OPENAI_URL` + `/chat/completions` | `CLAUDISH_OPENAI_KEY` (or `OPENAI_API_KEY` with `CLAUDISH_ALLOW_AMBIENT_KEYS=1`) | `gpt-5.6-luna` |
 
 ### codex
 
@@ -561,10 +561,14 @@ Notes:
 | `CLAUDISH_MODEL` | *(per provider)* | Model name; overrides the provider default (see [Providers](#providers)). The ollama default `gemma4:26b-mlx` is MLX (Apple-silicon only; Windows users must override). |
 | `CLAUDISH_MODEL_FILE` | `~/.claude/claudish-model` | Runtime model override: a model name in this file wins over `CLAUDISH_MODEL`, re-checked every message (applies to whatever provider is configured). Written by `/claudish model <name>`. See [Controlling it live](#controlling-it-live-claudish). |
 | `CLAUDISH_OLLAMA` | `http://localhost:11434` | ollama base URL. |
-| `CLAUDISH_ANTHROPIC_KEY` | *(unset)* | Anthropic API key; falls back to `ANTHROPIC_API_KEY`. |
-| `CLAUDISH_OPENAI_KEY` | *(unset)* | OpenAI(-compatible) API key; falls back to `OPENAI_API_KEY`. Only required for api.openai.com. |
+| `CLAUDISH_ANTHROPIC_KEY` | *(unset)* | Anthropic API key. The ambient `ANTHROPIC_API_KEY` only takes effect when `CLAUDISH_ALLOW_AMBIENT_KEYS=1` is set (default unset = no fallback). |
+| `CLAUDISH_OPENAI_KEY` | *(unset)* | OpenAI(-compatible) API key. The ambient `OPENAI_API_KEY` only takes effect when `CLAUDISH_ALLOW_AMBIENT_KEYS=1` is set. Only required for api.openai.com. |
+| `CLAUDISH_ALLOW_AMBIENT_KEYS` | *(unset)* | `1` to opt back into the fallback to `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` when the matching `CLAUDISH_*_KEY` is unset. Default unset — a shell profile, direnv, or any environment that exports the ambient names will NOT silently cause every rewrite to ship to a third-party cloud. |
 | `CLAUDISH_OPENAI_URL` | `https://api.openai.com/v1` | Base URL for any OpenAI-compatible endpoint (LM Studio, llama.cpp server, vLLM, OpenRouter, ...). Trailing slashes are ignored. |
 | `CLAUDISH_ANTHROPIC_URL` | `https://api.anthropic.com` | Base URL for the anthropic provider — override for proxies/gateways that speak the Messages API. |
+| `CLAUDISH_CLIENT_CERT` | *(unset)* | Path to a PEM-format client certificate (or a combined cert+key PEM). When set, every curl call passes `--cert <path>` — used to talk to a fleet endpoint that requires mutual TLS (e.g., a vLLM server started with `--ssl-certfile --ssl-keyfile --ssl-ca-certs --ssl-cert-reqs 2`). |
+| `CLAUDISH_CLIENT_KEY` | *(unset)* | Path to a PEM-format client private key, if it is not combined with `CLAUDISH_CLIENT_CERT`. When set, every curl call passes `--key <path>`. |
+| `CLAUDISH_CA_BUNDLE` | *(unset)* | Path to a PEM-format CA bundle to trust the endpoint certificate against. When set, every curl call passes `--cacert <path>`. When unset, the system trust store is used. |
 | `CLAUDISH_OPENAI_EFFORT` | `none` on api.openai.com, else *(unset)* | `reasoning_effort` sent with openai-provider requests. Set explicitly empty to omit the field. |
 | `CLAUDISH_CODEX_EFFORT` | *(unset)* | `model_reasoning_effort` for the codex provider (e.g. `low`). Unset uses the codex CLI's configured effort. Applies to the rewrite only. |
 | `CLAUDISH_MAX_TOKENS` | `4096` | Completion cap for the anthropic provider. Rewrites that hit the cap are discarded (fail-open), with a notice to raise it. |
