@@ -459,6 +459,29 @@ contents) is sent to that API. The same applies to pointing `CLAUDISH_OLLAMA`
 or `CLAUDISH_OPENAI_URL` at a remote/hosted endpoint. Don't switch away from
 local unless you understand and accept it.
 
+## Related: a hosted version
+
+This plugin is the original and stays local by default, so no changes are needed there.
+
+If you prefer a hosted version of the same idea, [declaude](https://github.com/tenkenco/declaude)
+is available. It uses the same approach and runs an open-weights model (Qwen2.5-14B) on its own
+GPUs, with a REST API, an MCP server, and an Ollama-compatible endpoint. It offers 100 free rewrites
+per month, $5 per month beyond that. The server source is MIT, and it credits this repository in its
+README, system prompt, and third-party notices.
+
+Since declaude speaks the Ollama API, it can also back this plugin on a machine that cannot spare
+17 GB:
+
+```bash
+export CLAUDISH_OLLAMA="https://x:$DECLAUDE_TOKEN@speak-english.tenken.co"
+export CLAUDISH_MODEL=qwen2.5-14b-instruct
+```
+
+> [!NOTE]
+> Using declaude sends your assistant messages to a third-party server, similar to how the
+> `anthropic` and `openai` providers operate. The default local `ollama` provider remains the only
+> setup where data does not leave your machine.
+
 ---
 
 ## Layout
