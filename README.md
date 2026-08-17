@@ -464,10 +464,10 @@ local unless you understand and accept it.
 This plugin is the original and stays local by default, so no changes are needed there.
 
 If you prefer a hosted version of the same idea, [declaude](https://github.com/tenkenco/declaude)
-is available. It uses the same approach, runs an open-weights model on its own GPUs, and exposes a
-REST API, an MCP server, and an Ollama-compatible endpoint. Its source is MIT, and it credits this
-repository in its README, system prompt, and third-party notices. See its README for the current
-model, limits, and pricing.
+is available. It uses the same approach, runs an open-weights model on its own GPUs, and exposes
+OpenAI-compatible and Ollama-compatible endpoints as well as an MCP server. Its source is MIT, and
+it credits this repository in its README, system prompt, and third-party notices. See its README
+for the current model, limits, and pricing.
 
 It speaks the OpenAI protocol, so it can also back this plugin on a machine that cannot spare
 17 GB, using the existing `openai` provider and nothing new:
@@ -478,7 +478,8 @@ export CLAUDISH_OPENAI_URL=https://speak-english.tenken.co/v1
 export CLAUDISH_OPENAI_KEY=$DECLAUDE_TOKEN
 ```
 
-The key travels in the `Authorization` header, so it never appears in a URL.
+Tokens come from [speak-english.tenken.co/signin](https://speak-english.tenken.co/signin). The key
+travels in the `Authorization` header, so it never appears in a URL.
 
 > [!NOTE]
 > Using declaude sends your assistant messages to a third-party server, similar to how the
