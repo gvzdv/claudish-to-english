@@ -464,10 +464,10 @@ local unless you understand and accept it.
 This plugin is the original and stays local by default, so no changes are needed there.
 
 If you prefer a hosted version of the same idea, [declaude](https://github.com/tenkenco/declaude)
-is available. It uses the same approach and runs an open-weights model (Qwen2.5-14B) on its own
-GPUs, with a REST API, an MCP server, and an Ollama-compatible endpoint. It offers 100 free rewrites
-per month, $5 per month beyond that. The server source is MIT, and it credits this repository in its
-README, system prompt, and third-party notices.
+is available. It uses the same approach, runs an open-weights model on its own GPUs, and exposes a
+REST API, an MCP server, and an Ollama-compatible endpoint. Its source is MIT, and it credits this
+repository in its README, system prompt, and third-party notices. See its README for the current
+model, limits, and pricing.
 
 Since declaude speaks the Ollama API, it can also back this plugin on a machine that cannot spare
 17 GB:
@@ -476,6 +476,10 @@ Since declaude speaks the Ollama API, it can also back this plugin on a machine 
 export CLAUDISH_OLLAMA="https://x:$DECLAUDE_TOKEN@speak-english.tenken.co"
 export CLAUDISH_MODEL=qwen2.5-14b-instruct
 ```
+
+The token sits in the URL because the ollama provider sends no auth header. Notices redact
+credentials before printing (see `redact_url` in `providers.sh`), so an unreachable host shows
+`https://***@host` rather than your token.
 
 > [!NOTE]
 > Using declaude sends your assistant messages to a third-party server, similar to how the

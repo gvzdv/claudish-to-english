@@ -46,6 +46,12 @@
 # ---------------------------------------------------------------------------
 
 PROVIDER="${CLAUDISH_PROVIDER:-ollama}"
+# A URL can carry credentials (https://user:token@host). Notices are printed on screen and
+# pasted into bug reports, so strip them before any URL is shown.
+redact_url() {
+  printf '%s' "${1:-}" | sed -E 's#(https?://)[^/@]*@#\1***@#'
+}
+
 OLLAMA="${CLAUDISH_OLLAMA:-http://localhost:11434}"
 ANTHROPIC_KEY="${CLAUDISH_ANTHROPIC_KEY:-${ANTHROPIC_API_KEY:-}}"
 OPENAI_KEY="${CLAUDISH_OPENAI_KEY:-${OPENAI_API_KEY:-}}"
@@ -240,7 +246,7 @@ llm_notice_why() {
       elif [ "$curl_rc" = "28" ]; then
         NOTICE_WHY="the rewrite timed out after ${LLM_TIMEOUT}s — ${TIMEOUT_HINT:-raise the timeout}"
       elif [ "$curl_rc" != "0" ]; then
-        NOTICE_WHY="cannot reach ${OPENAI_URL} (curl exit $curl_rc)"
+        NOTICE_WHY="cannot reach $(redact_url "$OPENAI_URL") (curl exit $curl_rc)"
       fi
       ;;
     *)
@@ -252,7 +258,7 @@ llm_notice_why() {
       elif [ "$curl_rc" = "28" ]; then
         NOTICE_WHY="the rewrite timed out after ${LLM_TIMEOUT}s (model too slow for this message) — ${TIMEOUT_HINT:-raise the timeout or set CLAUDISH_MODEL to a smaller model}"
       elif [ "$curl_rc" != "0" ]; then
-        NOTICE_WHY="can't reach ollama at $OLLAMA — start it with \`ollama serve\` (see the plugin README)"
+        NOTICE_WHY="can't reach ollama at $(redact_url "$OLLAMA") — start it with \`ollama serve\` (see the plugin README)"
       elif printf '%s' "${err:-}" | grep -qi 'not found'; then
         NOTICE_WHY="ollama model '$MODEL' isn't available — pull it with \`ollama pull $MODEL\`, or set CLAUDISH_MODEL to a model you have"
       elif [ -n "${err:-}" ]; then
