@@ -469,17 +469,16 @@ REST API, an MCP server, and an Ollama-compatible endpoint. Its source is MIT, a
 repository in its README, system prompt, and third-party notices. See its README for the current
 model, limits, and pricing.
 
-Since declaude speaks the Ollama API, it can also back this plugin on a machine that cannot spare
-17 GB:
+It speaks the OpenAI protocol, so it can also back this plugin on a machine that cannot spare
+17 GB, using the existing `openai` provider and nothing new:
 
 ```bash
-export CLAUDISH_OLLAMA="https://x:$DECLAUDE_TOKEN@speak-english.tenken.co"
-export CLAUDISH_MODEL=qwen2.5-14b-instruct
+export CLAUDISH_PROVIDER=openai
+export CLAUDISH_OPENAI_URL=https://speak-english.tenken.co/v1
+export CLAUDISH_OPENAI_KEY=$DECLAUDE_TOKEN
 ```
 
-The token sits in the URL because the ollama provider sends no auth header. Notices redact
-credentials before printing (see `redact_url` in `providers.sh`), so an unreachable host shows
-`https://***@host` rather than your token.
+The key travels in the `Authorization` header, so it never appears in a URL.
 
 > [!NOTE]
 > Using declaude sends your assistant messages to a third-party server, similar to how the
