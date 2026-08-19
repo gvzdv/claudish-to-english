@@ -31,9 +31,21 @@
 #                                          ~/.claude/claudish-off) — lets a
 #                                          hotkey/script toggle mid-session
 #   CLAUDISH_MODE      append|replace display strategy (default append)
+#   CLAUDISH_STYLE     tldr|5y        rewrite-style preset replacing the base
+#                                          prompt: "tldr" = a clearly shorter
+#                                          summary; "5y" = explain like I'm
+#                                          five. Unset/other = the default
+#                                          plain-language rewrite. A usable
+#                                          CLAUDISH_PROMPT_FILE wins over any
+#                                          style (custom prompt > style >
+#                                          built-in); the language line still
+#                                          applies. Switch it live with
+#                                          /claudish style (a flag file,
+#                                          CLAUDISH_STYLE_FILE, overrides this)
 #   CLAUDISH_PROMPT_FILE <path>       file holding a replacement rewrite prompt
 #                                          (whole prompt, not merged; empty or
-#                                          unreadable -> built-in default)
+#                                          unreadable -> built-in default,
+#                                          overriding any CLAUDISH_STYLE)
 #   CLAUDISH_LANG      <language>     language to rewrite into, e.g. "Esperanto".
 #                                          Unset falls back to the session's
 #                                          `language` setting from
@@ -69,6 +81,29 @@ ENABLED="${CLAUDISH_ENABLED:-1}"
 # every invocation. Create it to pause rewrites instantly; remove it to resume.
 [ -f "${CLAUDISH_OFF_FILE:-$HOME/.claude/claudish-off}" ] && ENABLED=0
 MODE="${CLAUDISH_MODE:-append}"
+# Runtime display-mode override written by /claudish (claudish-ctl.sh): like the
+# off-file, a file re-read per message flips append<->replace mid-session where
+# the frozen CLAUDISH_MODE env cannot. Only the two known values are honoured;
+# anything else (or no file) leaves the env/default in place.
+_mode_file="${CLAUDISH_MODE_FILE:-$HOME/.claude/claudish-mode}"
+if [ -f "$_mode_file" ]; then
+  case "$(cat "$_mode_file" 2>/dev/null | tr -d '[:space:]')" in
+    append)  MODE=append ;;
+    replace) MODE=replace ;;
+  esac
+fi
+# Rewrite-style preset (display hook only): "tldr" = a clearly shorter summary,
+# "5y" = explain like I'm five. Unset/other = the default plain-language rewrite.
+# Like MODE, the env is the launch default and a flag file overrides it live.
+STYLE=""
+case "${CLAUDISH_STYLE:-}" in tldr|5y) STYLE="$CLAUDISH_STYLE" ;; esac
+_style_file="${CLAUDISH_STYLE_FILE:-$HOME/.claude/claudish-style}"
+if [ -f "$_style_file" ]; then
+  case "$(cat "$_style_file" 2>/dev/null | tr -d '[:space:]')" in
+    tldr) STYLE=tldr ;;
+    5y)   STYLE=5y ;;
+  esac
+fi
 MIN_CHARS="${CLAUDISH_MIN_CHARS:-200}"
 STUB="${CLAUDISH_STUB:-0}"
 LLM_TIMEOUT="${CLAUDISH_TIMEOUT:-45}"
@@ -147,8 +182,26 @@ mkdir -p "$mdir" 2>/dev/null || pass_through
 printf '%s' "$payload" | jq -j '.delta // ""' > "$mdir/$(printf '%08d' "$idx").part" 2>/dev/null || pass_through
 dbg "chunk idx=$idx final=$final mid=$mid mode=$MODE"
 
+# ---- opt-out marker -------------------------------------------------------
+# A message that BEGINS with this marker is never rewritten (used by
+# /claudish last, whose whole point is reprinting an original — rewriting it
+# again would defeat it). The marker itself is stripped from the display.
+SKIP_MARK='<!-- claudish:original -->'
+strip_mark() { s="${1#"$SKIP_MARK"}"; s="${s#$'\n'}"; s="${s#$'\n'}"; printf '%s' "$s"; }
+if [ "$idx" = "0" ]; then
+  case "$(cat "$mdir/00000000.part" 2>/dev/null)" in
+    "$SKIP_MARK"*) : > "$mdir/skip" 2>/dev/null ;;
+  esac
+fi
+
 # ---- non-final chunks ----------------------------------------------------
 if [ "$final" != "true" ]; then
+  # Marked message in append mode: stream it, but hide the marker in chunk 0.
+  if [ -f "$mdir/skip" ] && [ "$MODE" != "replace" ] && [ "$idx" = "0" ]; then
+    out="$BUF_ROOT/$sid.$mid.strip"
+    strip_mark "$(cat "$mdir/00000000.part" 2>/dev/null)" > "$out" 2>/dev/null && emit "$out"
+    pass_through
+  fi
   # append: let the original stream through untouched.
   # replace: suppress the streamed original; the whole rewrite lands on final.
   if [ "$MODE" = "replace" ]; then emit_empty; else pass_through; fi
@@ -165,6 +218,18 @@ prose_len="$(printf '%s' "$full" \
 dbg "final: prose_len=$prose_len min=$MIN_CHARS mode=$MODE full_bytes=${#full}"
 
 cleanup() { rm -rf "$mdir" 2>/dev/null || true; }
+
+# Marked message -> never rewrite; re-show the original without the marker.
+# (replace mode blanked every previous chunk, so it needs the whole message;
+# append mode streamed chunk 0 already stripped, so only the final delta.)
+if [ -f "$mdir/skip" ]; then
+  dbg "skip: original-reprint marker"
+  out="$BUF_ROOT/$sid.$mid.orig"
+  if [ "$MODE" = "replace" ]; then src="$full"; else src="$(cat "$final_part" 2>/dev/null)"; fi
+  cleanup
+  strip_mark "$src" > "$out" 2>/dev/null && emit "$out"
+  pass_through
+fi
 
 # Below threshold -> do not rewrite.
 if [ "${prose_len:-0}" -lt "$MIN_CHARS" ]; then
@@ -183,8 +248,13 @@ fi
 # here needs it. Empty -> the rewrite follows the language of the message, so
 # the label must not claim one either.
 OUT_LANG="$(claudish_language "$cwd")"
-SEP=$'\n\n────────────────────────\n💬 In plain '"${OUT_LANG:-language}"$':\n\n'
-dbg "language=${OUT_LANG:-same as the message (default)}"
+# The label names the style and, when set, the language.
+case "$STYLE" in
+  tldr) SEP=$'\n\n────────────────────────\n'"💬 TL;DR${OUT_LANG:+ in $OUT_LANG}:"$'\n\n' ;;
+  5y)   SEP=$'\n\n────────────────────────\n'"💬 Like you're five${OUT_LANG:+, in $OUT_LANG}:"$'\n\n' ;;
+  *)    SEP=$'\n\n────────────────────────\n💬 In plain '"${OUT_LANG:-language}"$':\n\n' ;;
+esac
+dbg "language=${OUT_LANG:-same as the message (default)} style=${STYLE:-default}"
 
 # ---- obtain the rewrite --------------------------------------------------
 rewrite=""
@@ -199,6 +269,13 @@ else
   # whole prompt). An unset/empty/unreadable file falls back to this default, so
   # a bad path never stops rewrites — it just uses the built-in prompt.
   sys="You rewrite the assistant's message into much simpler, plain language. Write the rewrite in the same language as the message you are rewriting. Keep every fact, name, number, and file path. Use short sentences and everyday words. Leave fenced code blocks unchanged. Output ONLY the rewritten message with no preamble, labels, or commentary."
+  # Style presets replace the BASE prompt only: the language line below still
+  # applies, and a usable CLAUDISH_PROMPT_FILE still replaces everything —
+  # custom prompt > style > built-in.
+  case "$STYLE" in
+    tldr) sys="You rewrite the assistant's message as a SHORT summary in simple, plain language. This is a simplification, NOT a translation: it must be clearly shorter than the original — aim for half its length or less. Keep the key facts, decisions, numbers, and file paths; drop repetitions, hedges, and secondary detail. Keep technical terms, commands, and identifiers in their original form. Omit fenced code blocks (the original text is always in the transcript). Write the rewrite in the same language as the message you are rewriting. Output ONLY the rewritten message with no preamble, labels, or commentary." ;;
+    5y)   sys="You rewrite the assistant's message as if explaining it to a five-year-old: very simple words, short sentences, a friendly tone, and simple comparisons for hard ideas. Keep every important fact, name, number, and file path accurate. Keep technical terms, commands, and identifiers in their original form. Leave fenced code blocks unchanged. Write the rewrite in the same language as the message you are rewriting. Output ONLY the rewritten message with no preamble, labels, or commentary." ;;
+  esac
   # A configured language overrides "same language as the message" — it is the
   # last word in the prompt, and it names the language explicitly. The line goes
   # on BEFORE the prompt-file check on purpose: a usable CLAUDISH_PROMPT_FILE

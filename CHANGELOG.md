@@ -5,6 +5,46 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-19
+
+### Added
+- The `/claudish` slash command for mid-session control, backed by
+  `claudish-ctl.sh`. It switches rewrites on the fly — `on`/`off`,
+  `append`/`replace`, `language <name>`, `model <name>`, `last` (reprint the
+  original of the last message), `cycle`, and `reset` — by writing flag files
+  the hooks re-read every message, so changes take effect without relaunching.
+- A `/claudish` dashboard (bare `/claudish`, or `status`). It lists each
+  setting, its current value, and where that value comes from — an env var, a
+  `/claudish` override, `settings.json`, or the default — flagging every
+  persisting override with ⚠ so its cross-session persistence is never silent.
+- A `SessionStart` hook (`session-notice.sh`) that prints a one-line notice at
+  the start of any new session with leftover `/claudish` overrides active, so a
+  language or model set in an earlier session never applies silently. Gated by
+  `CLAUDISH_NOTICE`; `/claudish reset` clears all overrides at once.
+- Rewrite-style presets for the display hook: `/claudish style tldr` (a short
+  summary) and `5y` (explain like I'm five), also settable at launch with
+  `CLAUDISH_STYLE` or live via `CLAUDISH_STYLE_FILE`. A style replaces only the
+  built-in base prompt — the output language still applies, and a
+  `CLAUDISH_PROMPT_FILE` still wins (custom prompt > style > built-in). The
+  on-screen label follows the style (`💬 TL;DR:`, `💬 Like you're five:`).
+  Ported from [PR #17](https://github.com/gvzdv/claudish-to-english/pull/17).
+- `/claudish language` now accepts multi-word names (e.g. `Brazilian
+  Portuguese`); `/claudish last` prefers the current project's most recent
+  transcript before falling back to all projects; and `claudish-ctl.sh` fails
+  loudly if it cannot write a flag file instead of proceeding silently.
+- Runtime flag-file overrides that back the command, each sitting above its env
+  var and re-checked per message: `CLAUDISH_MODE_FILE` (`~/.claude/claudish-mode`,
+  read by the display hook), `CLAUDISH_LANG_FILE` (`~/.claude/claudish-lang`) and
+  `CLAUDISH_MODEL_FILE` (`~/.claude/claudish-model`), both read by `lang.sh` /
+  `providers.sh` and so honoured by both hooks. This generalises the existing
+  `CLAUDISH_OFF_FILE` pattern to mode, language, and model.
+- `/claudish last` reprints an assistant message's original text; the display
+  hook now recognises a leading `<!-- claudish:original -->` marker and passes
+  such a reply through unrewritten (the marker is stripped from view).
+
+Ported from the [claudish-tldr](https://github.com/MakhBeth/claudish-tldr) fork
+by Davide Di Pumpo, adapted to the provider layer and language resolver.
+
 ## [0.4.0] - 2026-08-14
 
 ### Added

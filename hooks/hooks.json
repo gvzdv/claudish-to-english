@@ -1,5 +1,16 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/session-notice.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "MessageDisplay": [
       {
         "hooks": [

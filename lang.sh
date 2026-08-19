@@ -42,6 +42,19 @@ _claudish_lang_clean() {
 }
 
 claudish_language() {
+  # Runtime override written by /claudish (claudish-ctl.sh): a file re-read on
+  # every message, so a `/claudish language X` switch takes effect mid-session
+  # where the frozen CLAUDISH_LANG env cannot. It sits ABOVE the env and the
+  # settings files for the same reason the off-file sits above CLAUDISH_ENABLED
+  # — only a per-message file can be flipped without relaunching. `/claudish
+  # language default` removes it and restores the resolution below. The file
+  # persists across sessions (like the off-file); cleaned like every source.
+  _cl_file="${CLAUDISH_LANG_FILE:-${HOME:-}/.claude/claudish-lang}"
+  if [ -f "$_cl_file" ]; then
+    _cl_rv="$(_claudish_lang_clean "$(head -c 64 "$_cl_file" 2>/dev/null)")"
+    if [ -n "$_cl_rv" ]; then printf '%s' "$_cl_rv"; return 0; fi
+  fi
+
   # An explicitly set CLAUDISH_LANG always wins, including an explicitly EMPTY
   # one — the escape hatch for keeping rewrites in English on a session that
   # speaks something else.
