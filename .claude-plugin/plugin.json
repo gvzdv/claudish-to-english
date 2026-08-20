@@ -1,7 +1,7 @@
 {
   "name": "claudish-to-english",
   "description": "Shows a plain-language rewrite of each Claude Code assistant message, produced by a local LLM (ollama, default), the Anthropic API, or any OpenAI-compatible API. Switch it on the fly with /claudish (on/off, append/replace, language, model). Display-only: Claude's reasoning and the transcript keep the original text.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "author": {
     "name": "Mike Gvozdev",
     "email": "mv.gvozdev@gmail.com",

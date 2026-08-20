@@ -46,6 +46,20 @@ STYLE_FILE="${CLAUDISH_STYLE_FILE:-$HOME/.claude/claudish-style}"
 LANG_FILE="${CLAUDISH_LANG_FILE:-$HOME/.claude/claudish-lang}"
 MODEL_FILE="${CLAUDISH_MODEL_FILE:-$HOME/.claude/claudish-model}"
 
+# The /claudish slash command passes the user's whole argument string as ONE
+# quoted "$ARGUMENTS" positional, so nothing typed after /claudish is re-parsed
+# as shell syntax. Split that single string back into words here (globbing off,
+# so a literal "*" is not expanded) to keep multi-word args like
+# `language Brazilian Portuguese` working. A direct multi-arg call from a
+# terminal already has $# > 1 and is left untouched; an empty string yields zero
+# positionals, so bare `/claudish` still falls through to the status dashboard.
+if [ $# -le 1 ]; then
+  set -f
+  # shellcheck disable=SC2086
+  set -- ${1:-}
+  set +f
+fi
+
 fail() { printf 'claudish-ctl: %s\n' "$1" >&2; exit 1; }
 
 # Borrow the hooks' own resolvers so the dashboard can't drift from them:

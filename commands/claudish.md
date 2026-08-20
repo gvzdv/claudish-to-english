@@ -4,7 +4,7 @@ argument-hint: "[on|off|append|replace|style <tldr|5y|default>|language <name>|m
 allowed-tools: Bash("${CLAUDE_PLUGIN_ROOT}"/claudish-ctl.sh:*)
 ---
 
-Claudish, after applying "$ARGUMENTS": !`"${CLAUDE_PLUGIN_ROOT}/claudish-ctl.sh" $ARGUMENTS`
+Claudish, after applying "$ARGUMENTS": !`"${CLAUDE_PLUGIN_ROOT}/claudish-ctl.sh" "$ARGUMENTS"`
 
 Decide how to present the script output above, based on "$ARGUMENTS":
 
