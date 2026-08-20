@@ -46,17 +46,25 @@ STYLE_FILE="${CLAUDISH_STYLE_FILE:-$HOME/.claude/claudish-style}"
 LANG_FILE="${CLAUDISH_LANG_FILE:-$HOME/.claude/claudish-lang}"
 MODEL_FILE="${CLAUDISH_MODEL_FILE:-$HOME/.claude/claudish-model}"
 
-# The /claudish slash command passes the user's whole argument string as ONE
-# quoted "$ARGUMENTS" positional, so nothing typed after /claudish is re-parsed
-# as shell syntax. Split that single string back into words here (globbing off,
-# so a literal "*" is not expanded) to keep multi-word args like
-# `language Brazilian Portuguese` working. A direct multi-arg call from a
-# terminal already has $# > 1 and is left untouched; an empty string yields zero
-# positionals, so bare `/claudish` still falls through to the status dashboard.
-if [ $# -le 1 ]; then
+# The /claudish slash command hands the user's whole argument string to us as a
+# QUOTED here-doc on stdin (invoked as `claudish-ctl.sh --stdin-args`). A quoted
+# here-doc delimiter makes the shell copy the body verbatim, so NOTHING typed
+# after /claudish is re-parsed as shell syntax: command substitution ($(...),
+# backticks), parameter expansion ($VAR), quotes, and operators (; | && *) all
+# arrive as literal text and are never evaluated. Quoting "$ARGUMENTS" into the
+# command line could not do this — Claude Code substitutes $ARGUMENTS textually
+# before the shell runs, so $(...) and $VAR stayed live inside the quotes.
+# We read that one line and split it into words ourselves, with globbing off so
+# a literal "*" is not expanded, to keep multi-word args like
+# `language Brazilian Portuguese` working. A direct call from a terminal passes
+# normal positional args (no --stdin-args) and is left untouched; an empty
+# here-doc yields zero positionals, so bare `/claudish` falls through to status.
+if [ "${1:-}" = "--stdin-args" ]; then
+  _argline=""
+  IFS= read -r _argline || true
   set -f
   # shellcheck disable=SC2086
-  set -- ${1:-}
+  set -- $_argline
   set +f
 fi
 
