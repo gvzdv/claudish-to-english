@@ -5,6 +5,25 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-08-20
+
+### Added
+- A **`codex` provider** (`CLAUDISH_PROVIDER=codex`) that runs the rewrite
+  through the OpenAI codex CLI non-interactively (`codex exec`, `--sandbox
+  read-only`, `--skip-git-repo-check`, outside any repo). It uses the CLI's own
+  login, so there is **no API key and no local model server** — a third keyless
+  path alongside ollama. `CLAUDISH_MODEL` maps to `codex -m`; unset uses the
+  CLI's configured default. A new `CLAUDISH_CODEX_EFFORT` maps to
+  `-c model_reasoning_effort=<value>`, overriding the CLI's reasoning effort for
+  the per-message rewrite only (e.g. `low` keeps it fast even when the CLI's
+  coding default is a high-effort tier). The call is bounded by a background
+  poll-and-kill loop (stock macOS has no `timeout(1)`), reads the final message
+  from `codex exec -o`, and fails open like every other provider — a missing
+  CLI, a non-zero exit, or a timeout just leaves the original text plus the
+  once-per-session notice. Contributed by
+  [@datvo06](https://github.com/datvo06) in
+  [PR #15](https://github.com/gvzdv/claudish-to-english/pull/15).
+
 ## [0.5.1] - 2026-08-20
 
 ### Fixed

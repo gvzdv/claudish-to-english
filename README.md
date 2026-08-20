@@ -423,24 +423,26 @@ frontmatter, so the frontmatter stays on line 1 where parsers expect it.
 
 ## Providers
 
-### codex
-
-`CLAUDISH_PROVIDER=codex` runs the rewrite through the OpenAI codex CLI
-(`codex exec`, read-only sandbox, outside any repo), using the CLI's own
-login. No API key and no local model server. `CLAUDISH_MODEL` overrides
-the CLI's configured model; unset uses the CLI default. Requires `codex`
-on PATH; fails open like every other provider.
-
-
-Rewrites go through one of three providers, selected with `CLAUDISH_PROVIDER`
+Rewrites go through one of four providers, selected with `CLAUDISH_PROVIDER`
 (both hooks share the setting). The default is unchanged from upstream: local
 ollama, nothing leaves your machine.
 
 | Provider | Endpoint | Key | Default model |
 |---|---|---|---|
 | `ollama` (default) | `CLAUDISH_OLLAMA` (`http://localhost:11434`) | none | `gemma4:26b-mlx` |
+| `codex` | OpenAI codex CLI (`codex exec`) — uses the CLI's own login | none | *(CLI default)* |
 | `anthropic` | `CLAUDISH_ANTHROPIC_URL` (`https://api.anthropic.com`) + `/v1/messages` | `CLAUDISH_ANTHROPIC_KEY` or `ANTHROPIC_API_KEY` | `claude-haiku-4-5` |
 | `openai` | `CLAUDISH_OPENAI_URL` + `/chat/completions` | `CLAUDISH_OPENAI_KEY` or `OPENAI_API_KEY` | `gpt-5.6-luna` |
+
+### codex
+
+`CLAUDISH_PROVIDER=codex` runs the rewrite through the OpenAI codex CLI
+(`codex exec`, read-only sandbox, outside any repo), using the CLI's own
+login. No API key and no local model server. `CLAUDISH_MODEL` overrides
+the CLI's configured model; unset uses the CLI default. `CLAUDISH_CODEX_EFFORT`
+overrides the CLI's reasoning effort for the rewrite only (e.g. `low` keeps a
+per-message rewrite fast even when the CLI's coding default is a high-effort
+tier). Requires `codex` on PATH; fails open like every other provider.
 
 > [!CAUTION]
 > The cloud providers pick their key up from the **ambient environment**
@@ -490,8 +492,9 @@ Notes:
   api.openai.com — needed for models that reject `reasoning_effort` entirely.
 - The anthropic provider caps completions at `CLAUDISH_MAX_TOKENS` (default
   4096, since the Messages API requires an explicit cap).
-- A rewrite that hits an output-token cap is **discarded**, not shown — on all
-  three providers (ollama's `done_reason: "length"` included): a half-finished
+- A rewrite that hits an output-token cap is **discarded**, not shown — on the
+  ollama, anthropic, and openai providers (ollama's `done_reason: "length"`
+  included): a half-finished
   rewrite on screen is confusing, and in the Markdown hook's `overwrite` mode
   it would replace your real document. You get the original text plus the
   once-per-session notice suggesting a higher cap.
@@ -518,7 +521,7 @@ Notes:
 | `CLAUDISH_PROMPT_FILE` | *(unset)* | Path to a file whose contents replace the display hook's system prompt (whole prompt, not merged). Empty/unreadable falls back to the built-in default. See [Customizing the rewrite prompt](#customizing-the-rewrite-prompt). |
 | `CLAUDISH_LANG` | *(unset)* | Language to rewrite into, e.g. `Esperanto`. Unset falls back to the `language` key in `.claude/settings*.json`; with neither set, the rewrite keeps the input's language. Empty ignores the settings key; `English` forces English. See [Output language](#output-language). |
 | `CLAUDISH_LANG_FILE` | `~/.claude/claudish-lang` | Runtime language override: a language name in this file wins over `CLAUDISH_LANG` and the settings key, re-checked every message. Written by `/claudish language <name>`. See [Controlling it live](#controlling-it-live-claudish). |
-| `CLAUDISH_PROVIDER` | `ollama` | `ollama`, `anthropic`, or `openai` — which LLM serves rewrites (both hooks). |
+| `CLAUDISH_PROVIDER` | `ollama` | `ollama`, `codex`, `anthropic`, or `openai` — which LLM serves rewrites (both hooks). |
 | `CLAUDISH_MODEL` | *(per provider)* | Model name; overrides the provider default (see [Providers](#providers)). The ollama default `gemma4:26b-mlx` is MLX (Apple-silicon only; Windows users must override). |
 | `CLAUDISH_MODEL_FILE` | `~/.claude/claudish-model` | Runtime model override: a model name in this file wins over `CLAUDISH_MODEL`, re-checked every message (applies to whatever provider is configured). Written by `/claudish model <name>`. See [Controlling it live](#controlling-it-live-claudish). |
 | `CLAUDISH_OLLAMA` | `http://localhost:11434` | ollama base URL. |
@@ -527,6 +530,7 @@ Notes:
 | `CLAUDISH_OPENAI_URL` | `https://api.openai.com/v1` | Base URL for any OpenAI-compatible endpoint (LM Studio, llama.cpp server, vLLM, OpenRouter, ...). Trailing slashes are ignored. |
 | `CLAUDISH_ANTHROPIC_URL` | `https://api.anthropic.com` | Base URL for the anthropic provider — override for proxies/gateways that speak the Messages API. |
 | `CLAUDISH_OPENAI_EFFORT` | `none` on api.openai.com, else *(unset)* | `reasoning_effort` sent with openai-provider requests. Set explicitly empty to omit the field. |
+| `CLAUDISH_CODEX_EFFORT` | *(unset)* | `model_reasoning_effort` for the codex provider (e.g. `low`). Unset uses the codex CLI's configured effort. Applies to the rewrite only. |
 | `CLAUDISH_MAX_TOKENS` | `4096` | Completion cap for the anthropic provider. Rewrites that hit the cap are discarded (fail-open), with a notice to raise it. |
 | `CLAUDISH_MIN_CHARS` | `200` | Skip messages/files whose prose (code stripped) is shorter than this. |
 | `CLAUDISH_STUB` | `0` | `1` = deterministic stub instead of the model (for testing display mechanics). |

@@ -41,6 +41,9 @@
 #                           (CLAUDISH_OPENAI_EFFORT=) to force the field off
 #                           even for api.openai.com — needed for models that
 #                           reject reasoning_effort entirely.
+#   CLAUDISH_CODEX_EFFORT   model_reasoning_effort for the codex provider (e.g.
+#                           "low"). Unset uses the codex CLI's configured
+#                           effort. Applies to the rewrite only.
 #
 # The caller must define dbg() and set LLM_TIMEOUT before calling
 # llm_complete, and may set TIMEOUT_HINT to customize llm_notice_why's
