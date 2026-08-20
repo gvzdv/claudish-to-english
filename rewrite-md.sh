@@ -36,6 +36,14 @@
 #   CLAUDISH_MD_PROMPT_FILE <path>    file holding a replacement Markdown prompt
 #                                     (whole prompt, not merged; empty or
 #                                     unreadable -> built-in default)
+#   CLAUDISH_LANG      <language>     language to rewrite into, e.g. "Esperanto".
+#                                     Unset falls back to the session's `language`
+#                                     setting from .claude/settings*.json (the same
+#                                     key Claude Code answers in); with neither set,
+#                                     the rewrite keeps the language of the file it
+#                                     rewrites. Set it EMPTY to ignore the settings
+#                                     key, or to "English" to force English.
+#                                     See lang.sh
 #   CLAUDISH_PROVIDER  ollama|anthropic|openai  which LLM serves rewrites (default
 #                                     ollama; keys, base URLs, and per-provider model
 #                                     defaults are documented in providers.sh)
@@ -77,9 +85,17 @@ dbg() { [ "$DEBUG" = "1" ] && printf '%s [%s] %s\n' "$(date '+%H:%M:%S')" "$$" "
 # Fail-open: leave the file as the agent wrote it.
 pass_through() { dbg "pass_through: ${1:-}"; exit 0; }
 
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # Provider layer (ollama/anthropic/openai): MODEL/OLLAMA defaults,
 # llm_complete, llm_notice_why. Missing file -> fail open.
-. "$(cd "$(dirname "$0")" && pwd)/providers.sh" 2>/dev/null || pass_through "no providers.sh"
+. "$SELF_DIR/providers.sh" 2>/dev/null || pass_through "no providers.sh"
+
+# Output-language resolver (lang.sh). Defined here first so a missing file
+# degrades to "no configured language" — the rewrite then keeps the file's own
+# language — instead of stopping rewrites.
+claudish_language() { :; }
+. "$SELF_DIR/lang.sh" 2>/dev/null || dbg "no lang.sh; keeping the file's language"
 
 # Print the canonical absolute path of $1 (its parent directory must exist).
 # Runs in a subshell so the cd never leaks.
@@ -163,6 +179,12 @@ prose_len="$(printf '%s' "$body" \
 dbg "prose_len=$prose_len min=$MIN_CHARS fm_lines=${fm_lines:-0}"
 [ "${prose_len:-0}" -ge "$MIN_CHARS" ] || pass_through "below min_chars"
 
+# ---- output language ------------------------------------------------------
+# Resolved after the cheap gates, since it reads settings files. Empty -> the
+# rewrite keeps the language the file is already written in.
+OUT_LANG="$(claudish_language "$CWD")"
+dbg "language=${OUT_LANG:-same as the file (default)}"
+
 # ---- obtain the rewrite ---------------------------------------------------
 rewrite=""
 curl_rc=0
@@ -173,7 +195,15 @@ if [ "$STUB" = "1" ]; then
 else
   # Base system prompt, replaceable via CLAUDISH_MD_PROMPT_FILE (a file holding
   # the whole prompt). An unset/empty/unreadable file falls back to this default.
-  sys="You rewrite Markdown prose into much simpler, plain English. Keep every fact, name, number, link, and file path. Keep all Markdown structure — headings, lists, tables, and links. Do NOT change fenced code blocks or any YAML frontmatter; reproduce them exactly. Use short sentences and everyday words. Output ONLY the rewritten Markdown, with no preamble, labels, or commentary."
+  sys="You rewrite Markdown prose into much simpler, plain language. Write the rewrite in the same language as the file you are rewriting. Keep every fact, name, number, link, and file path. Keep all Markdown structure — headings, lists, tables, and links. Do NOT change fenced code blocks or any YAML frontmatter; reproduce them exactly. Use short sentences and everyday words. Output ONLY the rewritten Markdown, with no preamble, labels, or commentary."
+  # A configured language overrides "same language as the file" — it is the last
+  # word in the prompt, and it names the language explicitly. The line goes on
+  # BEFORE the prompt-file check on purpose: a usable CLAUDISH_MD_PROMPT_FILE
+  # replaces the whole prompt, this line included. That file is the user's
+  # prompt in full, and it states its own language.
+  if [ -n "$OUT_LANG" ]; then
+    sys="$sys"$'\n\n'"Write the rewritten Markdown in $OUT_LANG instead, whatever language the original is in. Use $OUT_LANG for all prose, including headings, list items, and table cells. Keep code, identifiers, file paths, link targets, and YAML frontmatter exactly as they are."
+  fi
   if [ -n "${CLAUDISH_MD_PROMPT_FILE:-}" ]; then
     _p=""
     [ -r "$CLAUDISH_MD_PROMPT_FILE" ] && _p="$(cat "$CLAUDISH_MD_PROMPT_FILE" 2>/dev/null)"

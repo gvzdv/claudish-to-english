@@ -80,6 +80,18 @@ case "$PROVIDER" in
   *)         MODEL="${CLAUDISH_MODEL:-gemma4:26b-mlx}" ;;
 esac
 
+# Runtime model override written by /claudish (claudish-ctl.sh): a file re-read
+# on every message, so a `/claudish model X` switch takes effect mid-session
+# where the frozen CLAUDISH_MODEL env cannot. It wins over the env/default
+# resolved above; `/claudish model default` removes it and restores that.
+# Sanitised to the characters model names use — the value also lands on the
+# request. Provider-agnostic: X is passed to whatever provider is configured.
+_model_file="${CLAUDISH_MODEL_FILE:-${HOME:-}/.claude/claudish-model}"
+if [ -f "$_model_file" ]; then
+  _mf="$(head -c 128 "$_model_file" 2>/dev/null | tr -cd 'A-Za-z0-9:._/-' | head -c 64)"
+  [ -n "$_mf" ] && MODEL="$_mf"
+fi
+
 # Split the "\n<status>" suffix appended by curl -w '\n%{http_code}' off $resp
 # into $http. "000" (no response at all) is normalized to "".
 _llm_split_status() {
