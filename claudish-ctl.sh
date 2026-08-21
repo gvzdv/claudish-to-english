@@ -6,7 +6,7 @@
 # session where the frozen env cannot:
 #   off-file   (default ~/.claude/claudish-off)    exists -> rewrites paused
 #   mode-file  (default ~/.claude/claudish-mode)   append|replace -> display mode
-#   style-file (default ~/.claude/claudish-style)  tldr|5y -> rewrite style (display hook)
+#   style-file (default ~/.claude/claudish-style)  tldr|5y|caveman -> rewrite style (display hook)
 #   lang-file  (default ~/.claude/claudish-lang)   rewrite language (see lang.sh)
 #   model-file (default ~/.claude/claudish-model)  model (see providers.sh)
 # rewrite.sh reads mode/style; lang/model/off are shared with rewrite-md.sh.
@@ -21,8 +21,9 @@
 #   off           pause rewrites (originals only; also pauses the Markdown hook)
 #   append        original + rewrite appended (and turn on)
 #   replace       rewrite only (and turn on)
-#   style X       rewrite style: "tldr" (short summary) or "5y" (explain like
-#                 I'm five); no name / "default" resets to the plain rewrite.
+#   style X       rewrite style: "tldr" (short summary), "5y" (explain like
+#                 I'm five), or "caveman" (blunt caveman speak); no name /
+#                 "default" resets to the plain rewrite.
 #                 A custom CLAUDISH_PROMPT_FILE always wins over styles
 #   language X    rewrite into language X, e.g. "language Brazilian Portuguese"
 #                 (no name / "default" resets to the session/settings language)
@@ -105,8 +106,8 @@ current_mode() {
 current_style() {
   s=""
   [ -f "$STYLE_FILE" ] && s="$(cat "$STYLE_FILE" 2>/dev/null | tr -d '[:space:]')"
-  case "$s" in tldr|5y) printf '%s' "$s"; return ;; esac
-  case "${CLAUDISH_STYLE:-}" in tldr|5y) printf '%s' "$CLAUDISH_STYLE" ;; *) printf 'default' ;; esac
+  case "$s" in tldr|5y|caveman) printf '%s' "$s"; return ;; esac
+  case "${CLAUDISH_STYLE:-}" in tldr|5y|caveman) printf '%s' "$CLAUDISH_STYLE" ;; *) printf 'default' ;; esac
 }
 state() { [ -f "$OFF_FILE" ] && printf 'off' || current_mode; }
 
@@ -125,9 +126,9 @@ mode_source() {
 }
 style_source() {
   if [ -f "$STYLE_FILE" ]; then
-    case "$(cat "$STYLE_FILE" 2>/dev/null | tr -d '[:space:]')" in tldr|5y) echo flag; return ;; esac
+    case "$(cat "$STYLE_FILE" 2>/dev/null | tr -d '[:space:]')" in tldr|5y|caveman) echo flag; return ;; esac
   fi
-  case "${CLAUDISH_STYLE:-}" in tldr|5y) echo env; return ;; esac
+  case "${CLAUDISH_STYLE:-}" in tldr|5y|caveman) echo env; return ;; esac
   echo default
 }
 lang_source() {
@@ -192,7 +193,7 @@ dashboard() {
   printf '  %-9s %-16s · %s\n' 'language' "$(current_lang)"     "$_ll"
   printf '  %-9s %-16s · %s\n' 'model'    "$(current_model)"    "$_ml"
   printf '  %-9s %-16s · %s\n' 'provider' "${PROVIDER:-ollama}" "$_pl"
-  printf '\n  change   /claudish on · off · append · replace · style <tldr|5y> · language <name> · model <name>\n'
+  printf '\n  change   /claudish on · off · append · replace · style <tldr|5y|caveman> · language <name> · model <name>\n'
   printf '  other    /claudish last · cycle · reset (clear all overrides) · status\n'
   if [ "$WARN" = "1" ]; then
     printf '\n  ⚠ lines above are /claudish overrides in ~/.claude/claudish-* that persist\n'
@@ -239,8 +240,8 @@ case "$cmd" in
     s="$(printf '%s' "${2:-}" | tr -d '[:space:]')"
     case "$s" in
       ''|default|Default) rm -f "$STYLE_FILE" 2>/dev/null || fail "cannot remove $STYLE_FILE" ;;
-      tldr|5y)            { printf '%s\n' "$s" > "$STYLE_FILE"; } 2>/dev/null || fail "cannot write $STYLE_FILE" ;;
-      *) printf 'claudish-ctl: unknown style "%s" (use tldr|5y|default)\n' "$s" >&2; exit 2 ;;
+      tldr|5y|caveman)    { printf '%s\n' "$s" > "$STYLE_FILE"; } 2>/dev/null || fail "cannot write $STYLE_FILE" ;;
+      *) printf 'claudish-ctl: unknown style "%s" (use tldr|5y|caveman|default)\n' "$s" >&2; exit 2 ;;
     esac
     turn_on
     ;;

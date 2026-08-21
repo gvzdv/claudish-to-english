@@ -5,6 +5,24 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- A **`caveman` style preset** (`CLAUDISH_STYLE=caveman`, `/claudish style
+  caveman`) alongside `tldr` and `5y`: blunt caveman speak — very short
+  sentences, simple forceful words, no articles, present tense, a grunt where a
+  sentence would only hedge. Like the other presets it replaces the base prompt
+  only, so facts, numbers, file paths, commands, and identifiers are kept exact
+  and fenced code blocks are left alone; a usable `CLAUDISH_PROMPT_FILE` still
+  wins over it, and the output language still applies.
+
+### Changed
+- The **separator label is now coloured for every style**, not just the default
+  one. Each label reads yellow, then green, then red for the part carrying the
+  language and the colon: `In plain <language>:`, `Ugh. Me say:`, `Like you're
+  five:`, and `TL;DR:` (yellow alone, splitting into `TL;DR` / `in` /
+  `<language>:` when a language is set).
+
 ## [0.6.0] - 2026-08-20
 
 ### Added
