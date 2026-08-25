@@ -423,13 +423,14 @@ frontmatter, so the frontmatter stays on line 1 where parsers expect it.
 
 ## Providers
 
-Rewrites go through one of four providers, selected with `CLAUDISH_PROVIDER`
+Rewrites go through one of five providers, selected with `CLAUDISH_PROVIDER`
 (both hooks share the setting). The default is unchanged from upstream: local
 ollama, nothing leaves your machine.
 
 | Provider | Endpoint | Key | Default model |
 |---|---|---|---|
 | `ollama` (default) | `CLAUDISH_OLLAMA` (`http://localhost:11434`) | none | `gemma4:26b-mlx` |
+| `claude` | Claude Code itself, headless (`claude -p`); the CLI's own login | none | `claude-haiku-4-5` |
 | `codex` | OpenAI codex CLI (`codex exec`) — uses the CLI's own login | none | *(CLI default)* |
 | `anthropic` | `CLAUDISH_ANTHROPIC_URL` (`https://api.anthropic.com`) + `/v1/messages` | `CLAUDISH_ANTHROPIC_KEY` or `ANTHROPIC_API_KEY` | `claude-haiku-4-5` |
 | `openai` | `CLAUDISH_OPENAI_URL` + `/chat/completions` | `CLAUDISH_OPENAI_KEY` or `OPENAI_API_KEY` | `gpt-5.6-luna` |
@@ -466,7 +467,7 @@ export CLAUDISH_MODEL=gemma4:26b-mlx        # the default; any pulled tag works
 
 # Anthropic — Claude Haiku
 export CLAUDISH_PROVIDER=anthropic
-export ANTHROPIC_API_KEY=__SECRET__
+export ANTHROPIC_API_KEY=sk-ant-...
 export CLAUDISH_MODEL=claude-haiku-4-5      # the default; override to taste
 
 # Anthropic — no API key: ride the Claude Code login you're already using.
@@ -493,6 +494,35 @@ export CLAUDISH_PROVIDER=openai
 export CLAUDISH_OPENAI_URL=http://localhost:1234/v1
 export CLAUDISH_MODEL=qwen3-30b
 ```
+
+### Anthropic oauth mode, usage ledger, and the claude provider
+
+`CLAUDISH_ANTHROPIC_AUTH=oauth` reads the access token from the macOS login
+Keychain first (item `Claude Code-credentials`), checking `expiresAt` before
+using it; `~/.claude/.credentials.json` is the fallback on other platforms.
+Only `accessToken` is extracted; the refresh token never lands in a
+variable or a file. The token reaches `curl` only through a `0600` temp file
+used with `curl -K`, never on the command line (visible to other local users
+via `ps`) and never logged; the file is removed on exit and if the hook is
+killed mid-request.
+
+Every oauth call appends one line to a tab-separated usage ledger,
+`usage.log` under `$CLAUDISH_LOCAL_DIR` (default `~/.claude/claudish-local`),
+11 columns in order: epoch, caller, model, HTTP status, input tokens, output
+tokens, 5-hour utilization percent, 7-day utilization percent, 5-hour reset
+epoch, cost, session id. No message content is ever logged, only token
+counts, the subscription meters the API returns, and (on the `claude`
+provider) the cost it reports.
+
+`CLAUDISH_OAUTH_MAX_UTIL` sets an integer percent cap: once the last oauth
+response put the 5-hour subscription window at or above it, rewrites skip
+and fail open (original text, once-per-session notice) until that window
+resets, rather than risk spending past the cap.
+
+`CLAUDISH_PROVIDER=claude` is a second, sanctioned path: it runs the
+rewrite through Claude Code itself, headless (`claude -p` on Haiku), using
+the CLI's own login rather than a borrowed token. It is the supported
+alternative for whoever would rather not run in oauth mode at all.
 
 Notes:
 

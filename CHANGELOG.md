@@ -5,6 +5,33 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Anthropic oauth mode, hardened**: on top of PR #20's
+  `CLAUDISH_ANTHROPIC_AUTH=oauth`, the access token now comes from the macOS
+  login Keychain first (item `Claude Code-credentials`), checked against
+  `expiresAt` before use, falling back to `~/.claude/.credentials.json` on
+  other platforms. Only `accessToken` is extracted; the refresh token never
+  lands in a variable or a file, and the token reaches `curl` only through a
+  private temp file, never on the command line and never logged.
+- A **usage ledger**: every oauth call appends one tab-separated line to
+  `usage.log` under `$CLAUDISH_LOCAL_DIR` (default `~/.claude/claudish-local`)
+  with the epoch, caller, model, HTTP status, token counts, the subscription
+  meters the API returns, and a session id, so usage is auditable without
+  logging any message content.
+- **`CLAUDISH_OAUTH_MAX_UTIL`**: an integer percent cap. Once the last oauth
+  response put the 5-hour subscription window at or above it, rewrites skip
+  and fail open until that window resets, instead of spending past the cap.
+- A **`claude` provider** (`CLAUDISH_PROVIDER=claude`): runs the rewrite
+  through Claude Code itself, headless (`claude -p` on Haiku), using the
+  CLI's own login rather than a borrowed token, as a sanctioned alternative
+  to oauth mode.
+
+Builds on the oauth base from PR #20, contributed by
+[@JackBhanded](https://github.com/JackBhanded) in
+[PR #20](https://github.com/gvzdv/claudish-to-english/pull/20).
+
 ## [0.6.0] - 2026-08-20
 
 ### Added
