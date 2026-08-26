@@ -230,15 +230,30 @@ if [ -z "$rewrite" ]; then
   pass_through
 fi
 
+# ---- once-per-session oauth caution ---------------------------------------
+# oauth mode bills rewrites to the user's Claude subscription through an
+# unofficial mechanism, so the FIRST successful rewrite of a session says so
+# on screen (failures already surface through the notice above). The marker
+# is shared with rewrite-md.sh — one caution per session, not one per hook.
+oauth_note=""
+oauth_noted="$BUF_ROOT/$sid.oauth-noted"
+if [ "$NOTICE" = "1" ] && [ ! -e "$oauth_noted" ]; then
+  _onote="$(llm_oauth_note 2>/dev/null)"
+  if [ -n "$_onote" ]; then
+    : > "$oauth_noted" 2>/dev/null || true
+    oauth_note=$'\n\n'"⚠️ claudish-to-english: $_onote. Shown once per session; set CLAUDISH_NOTICE=0 to silence."
+  fi
+fi
+
 # ---- build displayContent for the final chunk ----------------------------
 out="$BUF_ROOT/$sid.$mid.out"
 if [ "$MODE" = "replace" ]; then
   # Everything before was suppressed; show only the rewrite.
-  printf '%s' "$rewrite" > "$out"
+  printf '%s%s' "$rewrite" "$oauth_note" > "$out"
 else
   # append: keep the streamed original (final chunk = its last delta),
   # then append the simplified version.
-  { cat "$final_part" 2>/dev/null; printf '%s' "$SEP"; printf '%s' "$rewrite"; } > "$out"
+  { cat "$final_part" 2>/dev/null; printf '%s' "$SEP"; printf '%s' "$rewrite"; printf '%s' "$oauth_note"; } > "$out"
 fi
 cleanup
 emit "$out"

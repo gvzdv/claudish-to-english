@@ -49,8 +49,12 @@ PROVIDER="${CLAUDISH_PROVIDER:-ollama}"
 OLLAMA="${CLAUDISH_OLLAMA:-http://localhost:11434}"
 # CLAUDISH_ANTHROPIC_AUTH=oauth borrows the Claude Code login: the access token
 # is re-read on EVERY call from the macOS login Keychain, or from
-# ~/.claude/.credentials.json on other platforms (Claude Code
-# refreshes it while running, and this hook only ever fires while it runs).
+# ~/.claude/.credentials.json on other platforms (Claude Code refreshes it
+# while running, and this hook only ever fires while it runs; a token past its
+# expiresAt is discarded rather than sent). UNOFFICIAL — use at your own risk;
+# the hooks say so on screen once per session. The token is only ever sent to
+# https://api.anthropic.com: oauth mode refuses to run with a
+# CLAUDISH_ANTHROPIC_URL override, so the credential cannot leak to a proxy.
 ANTHROPIC_AUTH="${CLAUDISH_ANTHROPIC_AUTH:-}"
 ANTHROPIC_KEY="${CLAUDISH_ANTHROPIC_KEY:-${ANTHROPIC_API_KEY:-}}"
 OPENAI_KEY="${CLAUDISH_OPENAI_KEY:-${OPENAI_API_KEY:-}}"
@@ -116,23 +120,62 @@ llm_complete() {
   hdrfile=""; cfgerr=0
   case "$PROVIDER" in
     anthropic)
-      _oauth_beta=()
+      _oauth_hdrs=()
       if [ "$ANTHROPIC_AUTH" = "oauth" ]; then
-        # oauth mode NEVER uses an env-supplied key: reset before the reads so the
-        # [ -n ] fallback below cannot short-circuit on a stale ANTHROPIC_API_KEY
-        # (which would ride the Bearer header and 401) and every call stays a
-        # fresh token read, as documented.
+        # The subscription token is account-scoped, refreshable, and harder to
+        # revoke than an API key — it must never travel anywhere but Anthropic.
+        # Refuse an overridden base URL outright (a proxy would receive the raw
+        # credential); proxy setups should use an API key instead.
+        if [ "$ANTHROPIC_URL" != "https://api.anthropic.com" ]; then
+          cfgerr=1
+          err="oauth mode sends the Claude Code token only to https://api.anthropic.com, but CLAUDISH_ANTHROPIC_URL is set to ${ANTHROPIC_URL} — unset the URL override or switch to an API key. Nothing was sent"
+          dbg "anthropic oauth: refused non-default URL"
+          return 0
+        fi
+        # oauth mode NEVER uses an env-supplied key: reset before the reads so a
+        # stale ANTHROPIC_API_KEY cannot ride the Bearer header (and 401), and
+        # every call stays a fresh token read, as documented.
         ANTHROPIC_KEY=""
         # macOS keeps the credentials in the login Keychain, not on disk, so the
-        # file read below finds nothing there. `security` ships with the OS.
-        # sed, not jq: the token read must work even where jq is missing.
+        # file read is the fallback there. `security` ships with the OS.
+        _cred=""
         if [ "$(uname -s)" = "Darwin" ]; then
-          ANTHROPIC_KEY="$(security find-generic-password -s 'Claude Code-credentials' -w 2>/dev/null \
-                          | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')"
+          _cred="$(security find-generic-password -s 'Claude Code-credentials' -w 2>/dev/null)"
         fi
-        [ -n "$ANTHROPIC_KEY" ] || \
-          ANTHROPIC_KEY="$(sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p' \
-                          "$HOME/.claude/.credentials.json" 2>/dev/null)"
+        [ -n "$_cred" ] || _cred="$(cat "${HOME:-}/.claude/.credentials.json" 2>/dev/null)"
+        # Narrow to the claudeAiOauth object before extracting fields, so a
+        # file that grows another section with its own accessToken can never
+        # hand us that token (or mismatch it with our expiresAt). Parameter
+        # expansion, not sed: it must work across pretty-printed lines. The
+        # object holds no nested braces, so the first "}" after the key ends
+        # it; a blob without the key passes through unchanged.
+        case "$_cred" in
+          *'"claudeAiOauth"'*) _cred="${_cred#*\"claudeAiOauth\"}"; _cred="${_cred%%\}*}" ;;
+        esac
+        # sed, not jq: the token read must work even where jq is missing.
+        # Whitespace-tolerant around the colon, so a pretty-printed or
+        # hand-edited credentials file parses the same as the compact JSON
+        # Claude Code writes today.
+        ANTHROPIC_KEY="$(printf '%s' "$_cred" \
+          | sed -n 's/.*"accessToken"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+        _exp="$(printf '%s' "$_cred" \
+          | sed -n 's/.*"expiresAt"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n1)"
+        _cred=""
+        # expiresAt is ms since epoch; 0 or absent means unknown — send anyway
+        # and let a 401 report it. A token Claude Code hasn't refreshed yet (an
+        # idle session, a long tool run) is discarded here instead of burning a
+        # doomed request; 30s of slack covers clock skew and request time. The
+        # 2>/dev/null guards keep a corrupt (non-integer-sized) value fail-open.
+        if [ -n "$ANTHROPIC_KEY" ] && [ "${_exp:-0}" -gt 0 ] 2>/dev/null; then
+          _now="$(date +%s 2>/dev/null)"
+          case "$_now" in
+            *[!0-9]*|'') : ;;  # no usable clock — send and let the API decide
+            *) if [ "$_exp" -le "$(( (_now + 30) * 1000 ))" ] 2>/dev/null; then
+                 dbg "anthropic oauth: token expired (expiresAt=${_exp}ms); discarded"
+                 ANTHROPIC_KEY=""
+               fi ;;
+          esac
+        fi
       fi
       if [ -z "$ANTHROPIC_KEY" ]; then dbg "anthropic: no key"; curl_rc=1; return 0; fi
       # No temperature: current Anthropic models reject sampling parameters.
@@ -142,7 +185,14 @@ llm_complete() {
       if [ "$ANTHROPIC_AUTH" = "oauth" ]; then
         # OAuth tokens ride Authorization: Bearer and need the oauth beta flag.
         hdrfile="$(_llm_key_file "Authorization" "Bearer $ANTHROPIC_KEY")"
-        _oauth_beta=(-H 'anthropic-beta: oauth-2025-04-20')
+        # Also present as the Claude Code CLI (these hooks only ever run inside
+        # one): Anthropic buckets OAuth traffic by User-Agent, and requests
+        # without a claude-cli UA land in an aggressively rate-limited default
+        # bucket. The version is a snapshot, not kept in sync — the bucketing
+        # keys on the product token, not the number.
+        _oauth_hdrs=(-H 'anthropic-beta: oauth-2025-04-20' \
+                     -H 'User-Agent: claude-cli/2.1.247 (external, cli)' \
+                     -H 'x-app: cli')
       else
         hdrfile="$(_llm_key_file "x-api-key" "$ANTHROPIC_KEY")"
       fi
@@ -158,7 +208,7 @@ llm_complete() {
       resp="$(printf '%s' "$req" | curl -sS --max-time "$LLM_TIMEOUT" -w '\n%{http_code}' \
               -K "$hdrfile" -H 'Content-Type: application/json' \
               -H 'anthropic-version: 2023-06-01' \
-              ${_oauth_beta[@]+"${_oauth_beta[@]}"} \
+              ${_oauth_hdrs[@]+"${_oauth_hdrs[@]}"} \
               -X POST "$ANTHROPIC_URL/v1/messages" -d @- 2>/dev/null)"
       curl_rc=$?
       rm -f "$hdrfile" 2>/dev/null
@@ -244,12 +294,16 @@ llm_notice_why() {
   NOTICE_WHY=""
   case "$PROVIDER" in
     anthropic)
-      if [ "$ANTHROPIC_AUTH" = "oauth" ] && [ -z "$ANTHROPIC_KEY" ]; then
-        NOTICE_WHY="could not read the Claude Code access token (macOS login Keychain, or ~/.claude/.credentials.json elsewhere) — check that Claude Code is logged in; rewrites are off"
+      # cfgerr first: oauth mode can refuse before any token is read (URL
+      # override), and that reason must win over the generic no-key lines. In
+      # API-key mode cfgerr only ever arises after a key exists, so the two
+      # conditions cannot both hold and the reorder changes nothing there.
+      if [ "${cfgerr:-0}" = "1" ]; then
+        NOTICE_WHY="${err:-provider configuration error}"
+      elif [ "$ANTHROPIC_AUTH" = "oauth" ] && [ -z "$ANTHROPIC_KEY" ]; then
+        NOTICE_WHY="could not read a fresh Claude Code access token (macOS login Keychain, or ~/.claude/.credentials.json elsewhere) — check that Claude Code is logged in; rewrites are off"
       elif [ -z "$ANTHROPIC_KEY" ]; then
         NOTICE_WHY="no Anthropic API key in this session's environment (set CLAUDISH_ANTHROPIC_KEY or ANTHROPIC_API_KEY), so rewrites are off"
-      elif [ "${cfgerr:-0}" = "1" ]; then
-        NOTICE_WHY="${err:-provider configuration error}"
       elif [ "${truncated:-0}" = "1" ]; then
         NOTICE_WHY="the rewrite hit the ${MAX_TOKENS}-token output cap and was discarded rather than shown half-finished — raise CLAUDISH_MAX_TOKENS"
       elif [ -n "${err:-}" ]; then
@@ -292,4 +346,14 @@ llm_notice_why() {
       fi
       ;;
   esac
+}
+
+# One-line "riding your subscription" caution for oauth mode: prints the text
+# when it applies (anthropic provider in oauth mode), nothing otherwise. The
+# hooks show it once per session next to their existing notice plumbing — the
+# wording lives here so both hooks stay identical.
+llm_oauth_note() {
+  [ "$PROVIDER" = "anthropic" ] || return 0
+  [ "$ANTHROPIC_AUTH" = "oauth" ] || return 0
+  printf '%s' "rewrites are riding your Claude subscription through the local Claude Code login (CLAUDISH_ANTHROPIC_AUTH=oauth). This is UNOFFICIAL — Anthropic has not blessed it, it may stop working at any time, and it could put your Claude account at risk. Use at your own risk"
 }

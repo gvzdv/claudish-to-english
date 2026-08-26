@@ -342,18 +342,25 @@ export CLAUDISH_MODEL=gemma4:26b-mlx        # the default; any pulled tag works
 
 # Anthropic — Claude Haiku
 export CLAUDISH_PROVIDER=anthropic
-export ANTHROPIC_API_KEY=__SECRET__
+export ANTHROPIC_API_KEY=sk-ant-...
 export CLAUDISH_MODEL=claude-haiku-4-5      # the default; override to taste
 
 # Anthropic — no API key: ride the Claude Code login you're already using.
 # Re-reads the OAuth access token from the macOS login Keychain (item
-# `Claude Code-credentials`), or ~/.claude/.credentials.json elsewhere, on every
-# call (Claude Code keeps it fresh while running, and these hooks only run
-# while it runs), and authenticates with Authorization: Bearer + the
-# oauth-2025-04-20 beta flag instead of x-api-key. Rewrites then ride your
-# Claude subscription — no separate API billing. UNOFFICIAL: Anthropic has
-# not blessed third-party use of the Claude Code token, so this mode may stop
-# working without warning; when it does, the hook fails open (original text,
+# `Claude Code-credentials`), or ~/.claude/.credentials.json elsewhere, on
+# every call (Claude Code keeps it fresh while running, and these hooks only
+# run while it runs; a token past its expiresAt is discarded, not sent), and
+# authenticates with Authorization: Bearer + the oauth-2025-04-20 beta flag
+# instead of x-api-key. Rewrites then ride your Claude subscription — no
+# separate API billing. The token is only ever sent to
+# https://api.anthropic.com: this mode refuses to run with a
+# CLAUDISH_ANTHROPIC_URL override, so the credential cannot leak to a proxy.
+#
+# ⚠️ UNOFFICIAL — USE AT YOUR OWN RISK. Anthropic has not blessed third-party
+# use of the Claude Code token: this mode may stop working without warning,
+# and programmatic use of a subscription credential could put your Claude
+# account at risk. The first rewrite of each session repeats this caution on
+# screen. When the mode breaks, the hook fails open (original text,
 # once-per-session notice) like every other failure.
 export CLAUDISH_PROVIDER=anthropic
 export CLAUDISH_ANTHROPIC_AUTH=oauth
