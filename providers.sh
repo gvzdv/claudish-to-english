@@ -48,7 +48,8 @@
 PROVIDER="${CLAUDISH_PROVIDER:-ollama}"
 OLLAMA="${CLAUDISH_OLLAMA:-http://localhost:11434}"
 # CLAUDISH_ANTHROPIC_AUTH=oauth borrows the Claude Code login: the access token
-# is re-read from ~/.claude/.credentials.json on EVERY call (Claude Code
+# is re-read on EVERY call from the macOS login Keychain, or from
+# ~/.claude/.credentials.json on other platforms (Claude Code
 # refreshes it while running, and this hook only ever fires while it runs).
 ANTHROPIC_AUTH="${CLAUDISH_ANTHROPIC_AUTH:-}"
 ANTHROPIC_KEY="${CLAUDISH_ANTHROPIC_KEY:-${ANTHROPIC_API_KEY:-}}"
@@ -117,9 +118,16 @@ llm_complete() {
     anthropic)
       _oauth_beta=()
       if [ "$ANTHROPIC_AUTH" = "oauth" ]; then
+        # macOS keeps the credentials in the login Keychain, not on disk, so the
+        # file read below finds nothing there. `security` ships with the OS.
         # sed, not jq: the token read must work even where jq is missing.
-        ANTHROPIC_KEY="$(sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p' \
-                        "$HOME/.claude/.credentials.json" 2>/dev/null)"
+        if [ "$(uname -s)" = "Darwin" ]; then
+          ANTHROPIC_KEY="$(security find-generic-password -s 'Claude Code-credentials' -w 2>/dev/null \
+                          | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')"
+        fi
+        [ -n "$ANTHROPIC_KEY" ] || \
+          ANTHROPIC_KEY="$(sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p' \
+                          "$HOME/.claude/.credentials.json" 2>/dev/null)"
       fi
       if [ -z "$ANTHROPIC_KEY" ]; then dbg "anthropic: no key"; curl_rc=1; return 0; fi
       # No temperature: current Anthropic models reject sampling parameters.
@@ -232,7 +240,7 @@ llm_notice_why() {
   case "$PROVIDER" in
     anthropic)
       if [ "$ANTHROPIC_AUTH" = "oauth" ] && [ -z "$ANTHROPIC_KEY" ]; then
-        NOTICE_WHY="could not read the Claude Code access token from ~/.claude/.credentials.json, so rewrites are off"
+        NOTICE_WHY="could not read the Claude Code access token (macOS login Keychain, or ~/.claude/.credentials.json elsewhere) — check that Claude Code is logged in; rewrites are off"
       elif [ -z "$ANTHROPIC_KEY" ]; then
         NOTICE_WHY="no Anthropic API key in this session's environment (set CLAUDISH_ANTHROPIC_KEY or ANTHROPIC_API_KEY), so rewrites are off"
       elif [ "${cfgerr:-0}" = "1" ]; then

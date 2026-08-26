@@ -346,7 +346,8 @@ export ANTHROPIC_API_KEY=__SECRET__
 export CLAUDISH_MODEL=claude-haiku-4-5      # the default; override to taste
 
 # Anthropic — no API key: ride the Claude Code login you're already using.
-# Re-reads the OAuth access token from ~/.claude/.credentials.json on every
+# Re-reads the OAuth access token from the macOS login Keychain (item
+# `Claude Code-credentials`), or ~/.claude/.credentials.json elsewhere, on every
 # call (Claude Code keeps it fresh while running, and these hooks only run
 # while it runs), and authenticates with Authorization: Bearer + the
 # oauth-2025-04-20 beta flag instead of x-api-key. Rewrites then ride your
