@@ -5,6 +5,29 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-08-26
+
+### Added
+- An **opt-in oauth mode for the anthropic provider**
+  (`CLAUDISH_ANTHROPIC_AUTH=oauth`) that rides the local Claude Code login
+  instead of an API key: the OAuth access token is re-read on **every call**
+  from the macOS login Keychain (item `Claude Code-credentials`) or
+  `~/.claude/.credentials.json` elsewhere, and sent as `Authorization: Bearer`
+  with the `oauth-2025-04-20` beta flag, a `claude-cli` User-Agent, and
+  `x-app: cli` — rewrites then bill to the existing Claude subscription, no
+  separate API billing. Guard rails: the token is **only ever sent to
+  `https://api.anthropic.com`** (the mode refuses a `CLAUDISH_ANTHROPIC_URL`
+  override, so the credential cannot leak to a proxy), a token past its
+  `expiresAt` is discarded rather than sent, an env `ANTHROPIC_API_KEY` is
+  never used as the Bearer token, and every failure keeps the fail-open
+  contract (original text plus the once-per-session notice). **UNOFFICIAL —
+  use at your own risk:** Anthropic has not blessed third-party use of the
+  Claude Code token, so the first successful oauth rewrite of each session
+  says so on screen (`CLAUDISH_NOTICE=0` silences it). Contributed by
+  [@JackBhanded](https://github.com/JackBhanded) in
+  [PR #20](https://github.com/gvzdv/claudish-to-english/pull/20), with the
+  macOS Keychain read by [@hanjoonchoe](https://github.com/hanjoonchoe).
+
 ## [0.6.0] - 2026-08-20
 
 ### Added
