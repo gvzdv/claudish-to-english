@@ -8,13 +8,17 @@
 </p>
 
 A Claude Code plugin that shows a **plain-English rewrite** of each assistant
-message, produced by a **local LLM via ollama** (default), the **Anthropic
-API**, or any **OpenAI-compatible API**. It is **display-only**:
+message, produced by a **local LLM via ollama** (default), the **codex CLI**,
+the **Anthropic API**, or any **OpenAI-compatible API**. It is **display-only**:
 Claude's own reasoning and the saved transcript keep the original text — only
 what you read on screen changes.
 
-An optional second hook rewrites **Markdown files** into plain English when they
-are written or edited (opt-in, off by default).
+If your session speaks something other than English, so does the rewrite: it
+follows the message's own language, or the `language` setting Claude Code
+already answers in. See [Output language](#output-language).
+
+An optional second hook rewrites **Markdown files** into plain language when
+they are written or edited (opt-in, off by default).
 
 > Status: working prototype. Every hook fails **open** — if anything goes wrong
 > (provider down, timeout, missing key or dependency), you simply see Claude's
@@ -158,9 +162,18 @@ Run `/reload-plugins` after edits; if it doesn't load, check the `/plugin`
 
 ## Configuring the plugin
 
-All behavior is controlled by `CLAUDISH_*` environment variables (full list in
-[Configuration](#configuration-env-vars) below). When you install from a
-marketplace, set them in Claude Code's **`env` block in `settings.json`** — do
+There are two ways to control claudish, and they complement each other:
+
+- **`/claudish`** — a slash command for live, day-to-day toggles: on/off, display
+  mode, language, and model. Changes take effect immediately, mid-session. This
+  is what most people reach for. See
+  [Controlling it live](#controlling-it-live-claudish).
+- **`CLAUDISH_*` environment variables** — your durable defaults, and the only
+  way to set everything `/claudish` doesn't cover (provider, API keys, base URLs,
+  the Markdown hook, timeouts). Full list in
+  [Configuration](#configuration-env-vars) below.
+
+Set the durable ones in Claude Code's **`env` block in `settings.json`** — do
 **not** edit the plugin's own `hooks/hooks.json`, which lives in the read-only
 plugin cache (`~/.claude/plugins/cache/…`) and is overwritten on every update.
 
@@ -199,13 +212,113 @@ To confirm the hook is firing, set `CLAUDISH_DEBUG=1` and watch
 
 ---
 
+## Controlling it live: `/claudish`
+
+`/claudish` is the interactive front-end for the four most-used settings —
+on/off, display mode, language, and model. Changes take effect on the next
+assistant message, mid-session, with nothing to relaunch:
+
+```
+/claudish              show the dashboard (current state + where each value comes from)
+/claudish on           resume rewrites (keeps the current mode)
+/claudish off          pause rewrites (originals only; also pauses the Markdown hook)
+/claudish append       show the original, then the rewrite below it
+/claudish replace      show only the rewrite
+/claudish style tldr   rewrite as a short summary (or "5y" = explain like I'm five)
+/claudish style        reset to the default plain-language rewrite
+/claudish language fr  rewrite into French (any name, incl. non-Latin like 简体中文)
+/claudish language     reset to the session/settings language (see "Output language")
+/claudish model X      use model X for whatever provider is configured
+/claudish model        reset to the provider default
+/claudish last         reprint the ORIGINAL of the last message (handy in replace mode)
+/claudish cycle        step off → append → replace → off
+/claudish reset        clear ALL overrides — back to your env/settings defaults
+```
+
+Bare `/claudish` prints a **dashboard** — each setting, its current value, and
+where that value comes from (an env var, a `/claudish` override, your
+`settings.json`, or the default):
+
+```
+  claudish · plain-language rewrite of each assistant message
+
+  status    replace          · ⚠ /claudish — rewrite only; beats env, persists across sessions
+  style     tldr             · ⚠ /claudish — beats env CLAUDISH_STYLE, persists across sessions
+  language  French           · ⚠ /claudish — beats env & settings, persists across sessions
+  model     gemma4:26b-mlx   · ollama provider default
+  provider  ollama           · default
+```
+
+Each switch writes a small flag file under `~/.claude/` that the hooks re-read
+every message (the paths and their `CLAUDISH_*_FILE` overrides are in the
+[env-var table](#configuration-env-vars); the underlying mechanism is under
+[Toggling mid-session](#toggling-mid-session)). A live `/claudish` switch **beats
+the matching env var** — `CLAUDISH_MODE`, `CLAUDISH_LANG`, or `CLAUDISH_MODEL`.
+
+**These overrides persist across sessions** (like the off-file), until you clear
+them with the per-setting `default` form, `/claudish on`, or `/claudish reset`.
+So a `/claudish language French` set today still applies to a session you open
+tomorrow. The state is never silent, though: the dashboard flags every persisting
+override with ⚠, and a `SessionStart` notice lists any that are active at the top
+of a new session (`CLAUDISH_NOTICE=0` silences it). For a *permanent* default,
+set the matching env var in `settings.json` rather than using `/claudish`.
+
+`/claudish last` works because the rewrite is display-only: the transcript always
+keeps Claude's original text, so the command just reprints it (prefixed with an
+internal `<!-- claudish:original -->` marker that tells the display hook not to
+rewrite that reply, and which is stripped from view).
+
+---
+
+## Output language
+
+The rewrite comes back in the **same language as the text it rewrites**. An
+Esperanto answer is simplified into Esperanto, an English one into English;
+nothing is translated unless you ask for it.
+
+To pin a language, set one. The hooks read the same `language` key Claude Code
+itself answers in, in the same order of precedence, so a session that already
+speaks Esperanto needs no extra configuration:
+
+| Source | Example |
+|---|---|
+| `CLAUDISH_LANG` (env) | `"CLAUDISH_LANG": "Esperanto"` |
+| `<project>/.claude/settings.local.json` | `"language": "Esperanto"` |
+| `<project>/.claude/settings.json` | `"language": "Esperanto"` |
+| `~/.claude/settings.json` | `"language": "Esperanto"` |
+
+The first one that is set wins, and the on-screen label then names it:
+`💬 In plain Esperanto:`. `CLAUDISH_LANG` set but **empty** ignores the settings
+key and goes back to following the input's language; set it to `English` to
+force English on a non-English session.
+
+A configured language is appended to the built-in prompt. A prompt supplied
+through `CLAUDISH_PROMPT_FILE` or `CLAUDISH_MD_PROMPT_FILE` replaces the whole
+prompt, language line included — that file is your prompt in full, and it
+states its own language (see below).
+
+An unreadable, malformed, or non-string setting is ignored the way every other
+failure here is: rewrites keep working, in the input's language.
+
+One caveat: a rewrite is only as good as the model that writes it, and small
+local models simplify English noticeably better than they simplify anything
+else. If non-English results disappoint, try a larger model or a cloud provider
+(see [Providers](#providers)).
+
+---
+
 ## Customizing the rewrite prompt
 
 Each hook ships with a default system prompt that asks the model for plain
-English while preserving facts, code, and structure. You can **replace** either
-prompt with your own to add specific rules or use wording that works
-better with your model. To do so, point the hook at a file that holds
-the prompt:
+language while preserving facts, code, and structure.
+
+For a quick change of tone without writing a prompt, the display hook also has
+two **built-in style presets** — `tldr` (a short summary) and `5y` (explain like
+I'm five) — set with [`/claudish style`](#controlling-it-live-claudish) or
+`CLAUDISH_STYLE`. For full control, you can instead **replace** either prompt
+with your own to add specific rules or use wording that works better with your
+model (this wins over a style preset). To do so, point the hook at a file that
+holds the prompt:
 
 | Hook | Prompt file |
 |---|---|
@@ -261,7 +374,7 @@ rewrites the assistant's message.
 
 | `CLAUDISH_MODE` | On screen | Notes |
 |---|---|---|
-| `append` (default) | Original streams normally, then a `💬 In plain English:` block is appended. | Safest. No streaming loss; if the LLM fails you just don't get the extra block. |
+| `append` (default) | Original streams normally, then a `💬 In plain language:` block is appended (`💬 In plain Esperanto:` when a language is configured). | Safest. No streaming loss; if the LLM fails you just don't get the extra block. |
 | `replace` | Only the simplified version (original chunks suppressed while streaming). | Experimental. Appears all at once after LLM latency; on failure it re-shows the full original. |
 
 ---
@@ -269,7 +382,7 @@ rewrites the assistant's message.
 ## Markdown file rewrite (optional second hook)
 
 A `PostToolUse` hook (`rewrite-md.sh`) rewrites Markdown **files** into plain
-English when they are written or edited. Unlike the display hook, this changes
+language when they are written or edited. Unlike the display hook, this changes
 bytes on disk.
 
 **Opt-in by directory.** It does nothing unless `CLAUDISH_MD_DIR` is set, and it
@@ -310,15 +423,26 @@ frontmatter, so the frontmatter stays on line 1 where parsers expect it.
 
 ## Providers
 
-Rewrites go through one of three providers, selected with `CLAUDISH_PROVIDER`
+Rewrites go through one of four providers, selected with `CLAUDISH_PROVIDER`
 (both hooks share the setting). The default is unchanged from upstream: local
 ollama, nothing leaves your machine.
 
 | Provider | Endpoint | Key | Default model |
 |---|---|---|---|
 | `ollama` (default) | `CLAUDISH_OLLAMA` (`http://localhost:11434`) | none | `gemma4:26b-mlx` |
+| `codex` | OpenAI codex CLI (`codex exec`) — uses the CLI's own login | none | *(CLI default)* |
 | `anthropic` | `CLAUDISH_ANTHROPIC_URL` (`https://api.anthropic.com`) + `/v1/messages` | `CLAUDISH_ANTHROPIC_KEY` or `ANTHROPIC_API_KEY` | `claude-haiku-4-5` |
 | `openai` | `CLAUDISH_OPENAI_URL` + `/chat/completions` | `CLAUDISH_OPENAI_KEY` or `OPENAI_API_KEY` | `gpt-5.6-luna` |
+
+### codex
+
+`CLAUDISH_PROVIDER=codex` runs the rewrite through the OpenAI codex CLI
+(`codex exec`, read-only sandbox, outside any repo), using the CLI's own
+login. No API key and no local model server. `CLAUDISH_MODEL` overrides
+the CLI's configured model; unset uses the CLI default. `CLAUDISH_CODEX_EFFORT`
+overrides the CLI's reasoning effort for the rewrite only (e.g. `low` keeps a
+per-message rewrite fast even when the CLI's coding default is a high-effort
+tier). Requires `codex` on PATH; fails open like every other provider.
 
 > [!CAUTION]
 > The cloud providers pick their key up from the **ambient environment**
@@ -389,8 +513,9 @@ Notes:
   api.openai.com — needed for models that reject `reasoning_effort` entirely.
 - The anthropic provider caps completions at `CLAUDISH_MAX_TOKENS` (default
   4096, since the Messages API requires an explicit cap).
-- A rewrite that hits an output-token cap is **discarded**, not shown — on all
-  three providers (ollama's `done_reason: "length"` included): a half-finished
+- A rewrite that hits an output-token cap is **discarded**, not shown — on the
+  ollama, anthropic, and openai providers (ollama's `done_reason: "length"`
+  included): a half-finished
   rewrite on screen is confusing, and in the Markdown hook's `overwrite` mode
   it would replace your real document. You get the original text plus the
   once-per-session notice suggesting a higher cap.
@@ -411,22 +536,29 @@ Notes:
 | `CLAUDISH_ENABLED` | `1` | Master switch. `0` = pass everything through. Read once at session start. |
 | `CLAUDISH_OFF_FILE` | `~/.claude/claudish-off` | Runtime kill switch. While this file exists, rewrites pause — re-checked every message, so unlike env vars it works mid-session. See [Toggling mid-session](#toggling-mid-session). |
 | `CLAUDISH_MODE` | `append` | `append` or `replace` (display hook). |
+| `CLAUDISH_MODE_FILE` | `~/.claude/claudish-mode` | Runtime display-mode override: `append`/`replace` in this file wins over `CLAUDISH_MODE`, re-checked every message. Written by `/claudish append`/`replace`. See [Controlling it live](#controlling-it-live-claudish). |
+| `CLAUDISH_STYLE` | *(unset)* | Rewrite-style preset (display hook): `tldr` = a clearly shorter summary, `5y` = explain like I'm five. Unset = the default plain-language rewrite. A usable `CLAUDISH_PROMPT_FILE` wins over any style (custom prompt > style > built-in); the output language still applies. |
+| `CLAUDISH_STYLE_FILE` | `~/.claude/claudish-style` | Runtime style override: `tldr`/`5y` in this file wins over `CLAUDISH_STYLE`, re-checked every message. Written by `/claudish style <tldr\|5y>`. See [Controlling it live](#controlling-it-live-claudish). |
 | `CLAUDISH_PROMPT_FILE` | *(unset)* | Path to a file whose contents replace the display hook's system prompt (whole prompt, not merged). Empty/unreadable falls back to the built-in default. See [Customizing the rewrite prompt](#customizing-the-rewrite-prompt). |
-| `CLAUDISH_PROVIDER` | `ollama` | `ollama`, `anthropic`, or `openai` — which LLM serves rewrites (both hooks). |
+| `CLAUDISH_LANG` | *(unset)* | Language to rewrite into, e.g. `Esperanto`. Unset falls back to the `language` key in `.claude/settings*.json`; with neither set, the rewrite keeps the input's language. Empty ignores the settings key; `English` forces English. See [Output language](#output-language). |
+| `CLAUDISH_LANG_FILE` | `~/.claude/claudish-lang` | Runtime language override: a language name in this file wins over `CLAUDISH_LANG` and the settings key, re-checked every message. Written by `/claudish language <name>`. See [Controlling it live](#controlling-it-live-claudish). |
+| `CLAUDISH_PROVIDER` | `ollama` | `ollama`, `codex`, `anthropic`, or `openai` — which LLM serves rewrites (both hooks). |
 | `CLAUDISH_MODEL` | *(per provider)* | Model name; overrides the provider default (see [Providers](#providers)). The ollama default `gemma4:26b-mlx` is MLX (Apple-silicon only; Windows users must override). |
+| `CLAUDISH_MODEL_FILE` | `~/.claude/claudish-model` | Runtime model override: a model name in this file wins over `CLAUDISH_MODEL`, re-checked every message (applies to whatever provider is configured). Written by `/claudish model <name>`. See [Controlling it live](#controlling-it-live-claudish). |
 | `CLAUDISH_OLLAMA` | `http://localhost:11434` | ollama base URL. |
 | `CLAUDISH_ANTHROPIC_KEY` | *(unset)* | Anthropic API key; falls back to `ANTHROPIC_API_KEY`. |
 | `CLAUDISH_OPENAI_KEY` | *(unset)* | OpenAI(-compatible) API key; falls back to `OPENAI_API_KEY`. Only required for api.openai.com. |
 | `CLAUDISH_OPENAI_URL` | `https://api.openai.com/v1` | Base URL for any OpenAI-compatible endpoint (LM Studio, llama.cpp server, vLLM, OpenRouter, ...). Trailing slashes are ignored. |
 | `CLAUDISH_ANTHROPIC_URL` | `https://api.anthropic.com` | Base URL for the anthropic provider — override for proxies/gateways that speak the Messages API. |
 | `CLAUDISH_OPENAI_EFFORT` | `none` on api.openai.com, else *(unset)* | `reasoning_effort` sent with openai-provider requests. Set explicitly empty to omit the field. |
+| `CLAUDISH_CODEX_EFFORT` | *(unset)* | `model_reasoning_effort` for the codex provider (e.g. `low`). Unset uses the codex CLI's configured effort. Applies to the rewrite only. |
 | `CLAUDISH_MAX_TOKENS` | `4096` | Completion cap for the anthropic provider. Rewrites that hit the cap are discarded (fail-open), with a notice to raise it. |
 | `CLAUDISH_MIN_CHARS` | `200` | Skip messages/files whose prose (code stripped) is shorter than this. |
 | `CLAUDISH_STUB` | `0` | `1` = deterministic stub instead of the model (for testing display mechanics). |
 | `CLAUDISH_TIMEOUT` | `45` | LLM client timeout for the **display** hook (seconds). Keep it below that hook's `timeout` (60s). |
 | `CLAUDISH_MD_TIMEOUT` | `150` | LLM client timeout for the **Markdown file** hook (seconds). Higher on purpose — a large model rewriting a long doc is slow. Keep it below the `PostToolUse` hook `timeout` (180s). |
 | `CLAUDISH_DEBUG` | `0` | `1` = write a debug log to `$TMPDIR/claudish-to-english/`. |
-| `CLAUDISH_NOTICE` | `1` | `1` = show a one-time, once-per-session notice when a rewrite is skipped because the provider is unreachable, the call timed out, a key is missing, or the model isn't available (display hook appends it on screen; Markdown hook uses a `systemMessage`). `0` = stay fully silent (pure fail-open). |
+| `CLAUDISH_NOTICE` | `1` | `1` = show a one-time, once-per-session notice when a rewrite is skipped because the provider is unreachable, the call timed out, a key is missing, or the model isn't available (display hook appends it on screen; Markdown hook uses a `systemMessage`). Also gates the `SessionStart` notice that announces leftover `/claudish` overrides. `0` = stay fully silent (pure fail-open). |
 | `CLAUDISH_MD_DIR` | *(unset)* | **Markdown hook opt-in.** Only `*.md` under this directory is rewritten. Unset = the Markdown hook does nothing. |
 | `CLAUDISH_MD_MODE` | `sibling` | `sibling` (`NAME.plain.md`) or `overwrite` (in place). |
 | `CLAUDISH_MD_SUFFIX` | `plain` | Sibling infix: `NAME.<suffix>.md`. |
@@ -459,7 +591,9 @@ You create and remove this file yourself; nothing creates it on install, and its
 absence is the normal "on" state. While it exists, `ENABLED` is forced to `0` and
 the fail-open path leaves Claude's original text untouched. Point a hotkey at a
 two-line toggle script to flip rewrites from the keyboard across all running
-sessions at once. Override the path with `CLAUDISH_OFF_FILE`.
+sessions at once. Override the path with `CLAUDISH_OFF_FILE`. `/claudish`
+([Controlling it live](#controlling-it-live-claudish)) is the friendly front-end
+for this, writing the same kind of flag files for mode, language, and model too.
 
 ### Reasoning models
 
@@ -489,11 +623,16 @@ claudish-to-english/
 ├── .claude-plugin/
 │   ├── plugin.json         # plugin manifest
 │   └── marketplace.json    # so the repo can be added as a marketplace directly
+├── commands/
+│   └── claudish.md         # /claudish slash command (runtime on/off, mode, language, model, last)
 ├── hooks/
-│   └── hooks.json          # MessageDisplay -> rewrite.sh ; PostToolUse -> rewrite-md.sh
+│   └── hooks.json          # SessionStart -> session-notice.sh ; MessageDisplay -> rewrite.sh ; PostToolUse -> rewrite-md.sh
 ├── rewrite.sh              # display-rewrite hook
 ├── rewrite-md.sh           # markdown-file rewrite hook (opt-in)
+├── claudish-ctl.sh         # runtime state switcher + dashboard backing /claudish (writes the flag files)
+├── session-notice.sh       # SessionStart hook: announces leftover /claudish overrides on a new session
 ├── providers.sh            # provider layer (ollama/anthropic/openai), sourced by both hooks
+├── lang.sh                 # output-language resolver (env + .claude/settings*.json), sourced by both hooks
 ├── CHANGELOG.md            # notable changes per version (Keep a Changelog)
 ├── LICENSE
 └── README.md

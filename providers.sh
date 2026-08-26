@@ -17,6 +17,9 @@
 #
 # Providers (CLAUDISH_PROVIDER):
 #   ollama     (default) local ollama at CLAUDISH_OLLAMA
+#   codex      the OpenAI codex CLI, non-interactively (codex exec); uses the
+#              CLI's own login, so no API key and no local model server. The
+#              rewrite runs with --sandbox read-only outside any repo.
 #   anthropic  Anthropic Messages API; key from CLAUDISH_ANTHROPIC_KEY or
 #              ANTHROPIC_API_KEY; base URL from CLAUDISH_ANTHROPIC_URL
 #   openai     any OpenAI-compatible /chat/completions endpoint (OpenAI,
@@ -38,6 +41,9 @@
 #                           (CLAUDISH_OPENAI_EFFORT=) to force the field off
 #                           even for api.openai.com — needed for models that
 #                           reject reasoning_effort entirely.
+#   CLAUDISH_CODEX_EFFORT   model_reasoning_effort for the codex provider (e.g.
+#                           "low"). Unset uses the codex CLI's configured
+#                           effort. Applies to the rewrite only.
 #
 # The caller must define dbg() and set LLM_TIMEOUT before calling
 # llm_complete, and may set TIMEOUT_HINT to customize llm_notice_why's
@@ -82,8 +88,21 @@ fi
 case "$PROVIDER" in
   anthropic) MODEL="${CLAUDISH_MODEL:-claude-haiku-4-5}" ;;
   openai)    MODEL="${CLAUDISH_MODEL:-gpt-5.6-luna}" ;;
+  codex)     MODEL="${CLAUDISH_MODEL:-}" ;;  # empty = the codex CLI's configured default
   *)         MODEL="${CLAUDISH_MODEL:-gemma4:26b-mlx}" ;;
 esac
+
+# Runtime model override written by /claudish (claudish-ctl.sh): a file re-read
+# on every message, so a `/claudish model X` switch takes effect mid-session
+# where the frozen CLAUDISH_MODEL env cannot. It wins over the env/default
+# resolved above; `/claudish model default` removes it and restores that.
+# Sanitised to the characters model names use — the value also lands on the
+# request. Provider-agnostic: X is passed to whatever provider is configured.
+_model_file="${CLAUDISH_MODEL_FILE:-${HOME:-}/.claude/claudish-model}"
+if [ -f "$_model_file" ]; then
+  _mf="$(head -c 128 "$_model_file" 2>/dev/null | tr -cd 'A-Za-z0-9:._/-' | head -c 64)"
+  [ -n "$_mf" ] && MODEL="$_mf"
+fi
 
 # Split the "\n<status>" suffix appended by curl -w '\n%{http_code}' off $resp
 # into $http. "000" (no response at all) is normalized to "".
@@ -251,6 +270,45 @@ llm_complete() {
       finish="$(printf '%s' "$resp" | jq -r '.choices[0].finish_reason // empty' 2>/dev/null)"
       [ "$finish" = "length" ] && { truncated=1; rewrite=""; }
       ;;
+    codex)
+      if ! command -v codex >/dev/null 2>&1; then
+        dbg "codex: CLI not found"; curl_rc=1; return 0
+      fi
+      _out="$(mktemp "${TMPDIR:-/tmp}/claudish-codex-out.XXXXXX" 2>/dev/null)" || return 2
+      _errf="$(mktemp "${TMPDIR:-/tmp}/claudish-codex-err.XXXXXX" 2>/dev/null)" || { rm -f "$_out"; return 2; }
+      trap 'rm -f "$_out" "$_errf" 2>/dev/null' EXIT
+      # codex has no separate system channel; prepend the system prompt.
+      # No timeout(1) on stock macOS, so background the call and kill on expiry.
+      # CLAUDISH_CODEX_EFFORT overrides the CLI's configured reasoning effort
+      # for the rewrite only ("low" keeps a per-message rewrite at seconds
+      # even when the CLI's coding default is a high-effort tier).
+      codex exec --sandbox read-only --skip-git-repo-check -C "${TMPDIR:-/tmp}" \
+        ${MODEL:+-m "$MODEL"} \
+        ${CLAUDISH_CODEX_EFFORT:+-c "model_reasoning_effort=${CLAUDISH_CODEX_EFFORT}"} \
+        -o "$_out" "$_sys
+
+$_user" >/dev/null 2>"$_errf" &
+      _pid=$!
+      _t=0
+      while kill -0 "$_pid" 2>/dev/null; do
+        if [ "$_t" -ge "$LLM_TIMEOUT" ]; then
+          kill -TERM "$_pid" 2>/dev/null; wait "$_pid" 2>/dev/null
+          curl_rc=28
+          rm -f "$_out" "$_errf" 2>/dev/null
+          dbg "codex timed out after ${LLM_TIMEOUT}s"
+          return 0
+        fi
+        sleep 1; _t=$((_t + 1))
+      done
+      wait "$_pid"; _rc=$?
+      rewrite="$(cat "$_out" 2>/dev/null)"
+      if [ "$_rc" != "0" ]; then
+        err="$(tail -c 400 "$_errf" 2>/dev/null)"
+        err="${err:-codex exec failed with exit $_rc}"
+        rewrite=""
+      fi
+      rm -f "$_out" "$_errf" 2>/dev/null
+      ;;
     *)
       req="$(jq -n --arg m "$MODEL" --arg s "$_sys" --arg u "$_user" \
             '{model:$m,stream:false,think:false,options:{temperature:0.3},messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null)"
@@ -327,6 +385,15 @@ llm_notice_why() {
         NOTICE_WHY="the rewrite timed out after ${LLM_TIMEOUT}s — ${TIMEOUT_HINT:-raise the timeout}"
       elif [ "$curl_rc" != "0" ]; then
         NOTICE_WHY="cannot reach ${OPENAI_URL} (curl exit $curl_rc)"
+      fi
+      ;;
+    codex)
+      if ! command -v codex >/dev/null 2>&1; then
+        NOTICE_WHY="the codex CLI is not on PATH (install it or pick another CLAUDISH_PROVIDER), so rewrites are off"
+      elif [ "$curl_rc" = "28" ]; then
+        NOTICE_WHY="the rewrite timed out after ${LLM_TIMEOUT}s — ${TIMEOUT_HINT:-raise the timeout}"
+      elif [ -n "${err:-}" ]; then
+        NOTICE_WHY="codex error: ${err}"
       fi
       ;;
     *)
