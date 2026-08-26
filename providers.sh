@@ -118,6 +118,11 @@ llm_complete() {
     anthropic)
       _oauth_beta=()
       if [ "$ANTHROPIC_AUTH" = "oauth" ]; then
+        # oauth mode NEVER uses an env-supplied key: reset before the reads so the
+        # [ -n ] fallback below cannot short-circuit on a stale ANTHROPIC_API_KEY
+        # (which would ride the Bearer header and 401) and every call stays a
+        # fresh token read, as documented.
+        ANTHROPIC_KEY=""
         # macOS keeps the credentials in the login Keychain, not on disk, so the
         # file read below finds nothing there. `security` ships with the OS.
         # sed, not jq: the token read must work even where jq is missing.
