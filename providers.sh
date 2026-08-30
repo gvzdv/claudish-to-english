@@ -27,6 +27,10 @@
 #              from CLAUDISH_OPENAI_URL, key from CLAUDISH_OPENAI_KEY or
 #              OPENAI_API_KEY. A key is only required for the default
 #              api.openai.com URL — local servers work keyless.
+#   orcarouter OrcaRouter's OpenAI-compatible /chat/completions endpoint
+#              (https://api.orcarouter.ai/v1); base URL from
+#              CLAUDISH_ORCAROUTER_URL, key from CLAUDISH_ORCAROUTER_KEY or
+#              ORCAROUTER_API_KEY. A key is always required.
 #
 # Extra config:
 #   CLAUDISH_MODEL          overrides the per-provider default model
@@ -66,12 +70,15 @@ ANTHROPIC_KEY="${CLAUDISH_ANTHROPIC_KEY:-${ANTHROPIC_API_KEY:-}}"
 OPENAI_KEY="${CLAUDISH_OPENAI_KEY:-${OPENAI_API_KEY:-}}"
 OPENAI_URL="${CLAUDISH_OPENAI_URL:-https://api.openai.com/v1}"
 ANTHROPIC_URL="${CLAUDISH_ANTHROPIC_URL:-https://api.anthropic.com}"
+ORCAROUTER_URL="${CLAUDISH_ORCAROUTER_URL:-https://api.orcarouter.ai/v1}"
+ORCAROUTER_KEY="${CLAUDISH_ORCAROUTER_KEY:-${ORCAROUTER_API_KEY:-}}"
 MAX_TOKENS="${CLAUDISH_MAX_TOKENS:-4096}"
 
 # Normalize away trailing slashes BEFORE any URL comparison, so
 # ".../v1/" gets the same key requirement and effort default as ".../v1".
 while [ "${OPENAI_URL%/}" != "$OPENAI_URL" ]; do OPENAI_URL="${OPENAI_URL%/}"; done
 while [ "${ANTHROPIC_URL%/}" != "$ANTHROPIC_URL" ]; do ANTHROPIC_URL="${ANTHROPIC_URL%/}"; done
+while [ "${ORCAROUTER_URL%/}" != "$ORCAROUTER_URL" ]; do ORCAROUTER_URL="${ORCAROUTER_URL%/}"; done
 
 # An explicitly set CLAUDISH_OPENAI_EFFORT always wins — including an
 # explicitly EMPTY one, which omits the field (the escape hatch for models
@@ -86,10 +93,11 @@ else
 fi
 
 case "$PROVIDER" in
-  anthropic) MODEL="${CLAUDISH_MODEL:-claude-haiku-4-5}" ;;
-  openai)    MODEL="${CLAUDISH_MODEL:-gpt-5.6-luna}" ;;
-  codex)     MODEL="${CLAUDISH_MODEL:-}" ;;  # empty = the codex CLI's configured default
-  *)         MODEL="${CLAUDISH_MODEL:-gemma4:26b-mlx}" ;;
+  anthropic)   MODEL="${CLAUDISH_MODEL:-claude-haiku-4-5}" ;;
+  openai)      MODEL="${CLAUDISH_MODEL:-gpt-5.6-luna}" ;;
+  orcarouter)  MODEL="${CLAUDISH_MODEL:-orcarouter/auto}" ;;
+  codex)       MODEL="${CLAUDISH_MODEL:-}" ;;  # empty = the codex CLI's configured default
+  *)           MODEL="${CLAUDISH_MODEL:-gemma4:26b-mlx}" ;;
 esac
 
 # Runtime model override written by /claudish (claudish-ctl.sh): a file re-read
@@ -270,6 +278,36 @@ llm_complete() {
       finish="$(printf '%s' "$resp" | jq -r '.choices[0].finish_reason // empty' 2>/dev/null)"
       [ "$finish" = "length" ] && { truncated=1; rewrite=""; }
       ;;
+    orcarouter)
+      # OrcaRouter is OpenAI-compatible (/chat/completions) but a key is
+      # ALWAYS required — there is no keyless local mode, so an unset key is
+      # treated exactly like api.openai.com is above.
+      if [ -z "$ORCAROUTER_KEY" ]; then
+        dbg "orcarouter: no key"; curl_rc=1; return 0
+      fi
+      # No reasoning_effort: OrcaRouter routes across many upstreams, and some
+      # reject unknown fields (same rule as custom compat URLs above).
+      req="$(jq -n --arg m "$MODEL" --arg s "$_sys" --arg u "$_user" \
+            '{model:$m,messages:[{role:"system",content:$s},{role:"user",content:$u}]}' 2>/dev/null)"
+      [ -n "$req" ] || return 2
+      hdrfile="$(_llm_key_file "Authorization" "Bearer $ORCAROUTER_KEY")"
+      if [ -z "$hdrfile" ]; then
+        cfgerr=1
+        err="could not create a private temp file for the API key under ${TMPDIR:-/tmp} — nothing was sent"
+        return 0
+      fi
+      trap 'rm -f "$hdrfile" 2>/dev/null' EXIT
+      resp="$(printf '%s' "$req" | curl -sS --max-time "$LLM_TIMEOUT" -w '\n%{http_code}' \
+              -H 'Content-Type: application/json' -K "$hdrfile" \
+              -X POST "$ORCAROUTER_URL/chat/completions" -d @- 2>/dev/null)"
+      curl_rc=$?
+      rm -f "$hdrfile" 2>/dev/null
+      _llm_split_status
+      rewrite="$(printf '%s' "$resp" | jq -j '.choices[0].message.content // empty' 2>/dev/null)"
+      err="$(printf '%s' "$resp" | jq -r 'if (.error|type)=="object" then (.error.message // empty) else (.error // empty) end' 2>/dev/null)"
+      finish="$(printf '%s' "$resp" | jq -r '.choices[0].finish_reason // empty' 2>/dev/null)"
+      [ "$finish" = "length" ] && { truncated=1; rewrite=""; }
+      ;;
     codex)
       if ! command -v codex >/dev/null 2>&1; then
         dbg "codex: CLI not found"; curl_rc=1; return 0
@@ -338,6 +376,7 @@ $_user" >/dev/null 2>"$_errf" &
       5??|429) err="HTTP $http from the endpoint — it may be down, overloaded, or rate-limiting" ;;
       *)   case "$PROVIDER" in
              anthropic) err="HTTP $http with no error message in the response — check that CLAUDISH_ANTHROPIC_URL points at an Anthropic-compatible API base URL" ;;
+             orcarouter) err="HTTP $http with no error message in the response — check that CLAUDISH_ORCAROUTER_URL points at an OpenAI-compatible API base URL (usually ending in /v1)" ;;
              *)         err="HTTP $http with no error message in the response — check that CLAUDISH_OPENAI_URL points at an OpenAI-compatible API base URL (usually ending in /v1)" ;;
            esac ;;
     esac
@@ -385,6 +424,24 @@ llm_notice_why() {
         NOTICE_WHY="the rewrite timed out after ${LLM_TIMEOUT}s — ${TIMEOUT_HINT:-raise the timeout}"
       elif [ "$curl_rc" != "0" ]; then
         NOTICE_WHY="cannot reach ${OPENAI_URL} (curl exit $curl_rc)"
+      fi
+      ;;
+    orcarouter)
+      # First check that mirrors openai: an unset key against the default URL.
+      # A custom URL (self-hosted, a mirror) still requires a key, but the
+      # generic no-key wording is only right for the hosted endpoint.
+      if [ -z "$ORCAROUTER_KEY" ] && [ "$ORCAROUTER_URL" = "https://api.orcarouter.ai/v1" ]; then
+        NOTICE_WHY="no OrcaRouter API key in this session's environment (set CLAUDISH_ORCAROUTER_KEY or ORCAROUTER_API_KEY), so rewrites are off"
+      elif [ "${cfgerr:-0}" = "1" ]; then
+        NOTICE_WHY="${err:-provider configuration error}"
+      elif [ "${truncated:-0}" = "1" ]; then
+        NOTICE_WHY="the rewrite hit the model's output-token limit and was discarded rather than shown half-finished — use a shorter message, or raise the completion cap if you run the server yourself"
+      elif [ -n "${err:-}" ]; then
+        NOTICE_WHY="OrcaRouter API error: ${err}"
+      elif [ "$curl_rc" = "28" ]; then
+        NOTICE_WHY="the rewrite timed out after ${LLM_TIMEOUT}s — ${TIMEOUT_HINT:-raise the timeout}"
+      elif [ "$curl_rc" != "0" ]; then
+        NOTICE_WHY="cannot reach ${ORCAROUTER_URL} (curl exit $curl_rc)"
       fi
       ;;
     codex)
