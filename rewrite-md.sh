@@ -44,7 +44,7 @@
 #                                     rewrites. Set it EMPTY to ignore the settings
 #                                     key, or to "English" to force English.
 #                                     See lang.sh
-#   CLAUDISH_PROVIDER  ollama|anthropic|openai  which LLM serves rewrites (default
+#   CLAUDISH_PROVIDER  ollama|anthropic|openai|orcarouter  which LLM serves rewrites (default
 #                                     ollama; keys, base URLs, and per-provider model
 #                                     defaults are documented in providers.sh)
 #   CLAUDISH_MODEL     <model>        overrides the provider's default model
@@ -87,7 +87,7 @@ pass_through() { dbg "pass_through: ${1:-}"; exit 0; }
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Provider layer (ollama/anthropic/openai): MODEL/OLLAMA defaults,
+# Provider layer (ollama/anthropic/openai/orcarouter): MODEL/OLLAMA defaults,
 # llm_complete, llm_notice_why. Missing file -> fail open.
 . "$SELF_DIR/providers.sh" 2>/dev/null || pass_through "no providers.sh"
 

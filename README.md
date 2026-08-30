@@ -448,6 +448,7 @@ ollama, nothing leaves your machine.
 | `codex` | OpenAI codex CLI (`codex exec`) — uses the CLI's own login | none | *(CLI default)* |
 | `anthropic` | `CLAUDISH_ANTHROPIC_URL` (`https://api.anthropic.com`) + `/v1/messages` | `CLAUDISH_ANTHROPIC_KEY` or `ANTHROPIC_API_KEY` | `claude-haiku-4-5` |
 | `openai` | `CLAUDISH_OPENAI_URL` + `/chat/completions` | `CLAUDISH_OPENAI_KEY` or `OPENAI_API_KEY` | `gpt-5.6-luna` |
+| `orcarouter` | `CLAUDISH_ORCAROUTER_URL` (`https://api.orcarouter.ai/v1`) + `/chat/completions` | `CLAUDISH_ORCAROUTER_KEY` or `ORCAROUTER_API_KEY` | `orcarouter/auto` |
 
 ### codex
 
@@ -515,6 +516,12 @@ export CLAUDISH_MODEL=gpt-5.6-luna          # the default; override to taste
 export CLAUDISH_PROVIDER=openai
 export CLAUDISH_OPENAI_URL=http://localhost:1234/v1
 export CLAUDISH_MODEL=qwen3-30b
+
+# OrcaRouter — an OpenAI-compatible gateway, as a named provider. A key is
+# always required. `orcarouter/auto` routes to an upstream model automatically.
+export CLAUDISH_PROVIDER=orcarouter
+export ORCAROUTER_API_KEY=sk-orca-...
+export CLAUDISH_MODEL=orcarouter/auto      # the default; override to taste
 ```
 
 Notes:
@@ -529,8 +536,8 @@ Notes:
 - The anthropic provider caps completions at `CLAUDISH_MAX_TOKENS` (default
   4096, since the Messages API requires an explicit cap).
 - A rewrite that hits an output-token cap is **discarded**, not shown — on the
-  ollama, anthropic, and openai providers (ollama's `done_reason: "length"`
-  included): a half-finished
+  ollama, anthropic, openai, and orcarouter providers (ollama's
+  `done_reason: "length"` included): a half-finished
   rewrite on screen is confusing, and in the Markdown hook's `overwrite` mode
   it would replace your real document. You get the original text plus the
   once-per-session notice suggesting a higher cap.
@@ -557,13 +564,15 @@ Notes:
 | `CLAUDISH_PROMPT_FILE` | *(unset)* | Path to a file whose contents replace the display hook's system prompt (whole prompt, not merged). Empty/unreadable falls back to the built-in default. See [Customizing the rewrite prompt](#customizing-the-rewrite-prompt). |
 | `CLAUDISH_LANG` | *(unset)* | Language to rewrite into, e.g. `Esperanto`. Unset falls back to the `language` key in `.claude/settings*.json`; with neither set, the rewrite keeps the input's language. Empty ignores the settings key; `English` forces English. See [Output language](#output-language). |
 | `CLAUDISH_LANG_FILE` | `~/.claude/claudish-lang` | Runtime language override: a language name in this file wins over `CLAUDISH_LANG` and the settings key, re-checked every message. Written by `/claudish language <name>`. See [Controlling it live](#controlling-it-live-claudish). |
-| `CLAUDISH_PROVIDER` | `ollama` | `ollama`, `codex`, `anthropic`, or `openai` — which LLM serves rewrites (both hooks). |
+| `CLAUDISH_PROVIDER` | `ollama` | `ollama`, `codex`, `anthropic`, `openai`, or `orcarouter` — which LLM serves rewrites (both hooks). |
 | `CLAUDISH_MODEL` | *(per provider)* | Model name; overrides the provider default (see [Providers](#providers)). The ollama default `gemma4:26b-mlx` is MLX (Apple-silicon only; Windows users must override). |
 | `CLAUDISH_MODEL_FILE` | `~/.claude/claudish-model` | Runtime model override: a model name in this file wins over `CLAUDISH_MODEL`, re-checked every message (applies to whatever provider is configured). Written by `/claudish model <name>`. See [Controlling it live](#controlling-it-live-claudish). |
 | `CLAUDISH_OLLAMA` | `http://localhost:11434` | ollama base URL. |
 | `CLAUDISH_ANTHROPIC_KEY` | *(unset)* | Anthropic API key; falls back to `ANTHROPIC_API_KEY`. |
 | `CLAUDISH_OPENAI_KEY` | *(unset)* | OpenAI(-compatible) API key; falls back to `OPENAI_API_KEY`. Only required for api.openai.com. |
 | `CLAUDISH_OPENAI_URL` | `https://api.openai.com/v1` | Base URL for any OpenAI-compatible endpoint (LM Studio, llama.cpp server, vLLM, OpenRouter, ...). Trailing slashes are ignored. |
+| `CLAUDISH_ORCAROUTER_KEY` | *(unset)* | OrcaRouter API key; falls back to `ORCAROUTER_API_KEY`. Always required. |
+| `CLAUDISH_ORCAROUTER_URL` | `https://api.orcarouter.ai/v1` | Base URL for OrcaRouter's OpenAI-compatible endpoint. Trailing slashes are ignored. |
 | `CLAUDISH_ANTHROPIC_URL` | `https://api.anthropic.com` | Base URL for the anthropic provider — override for proxies/gateways that speak the Messages API. |
 | `CLAUDISH_OPENAI_EFFORT` | `none` on api.openai.com, else *(unset)* | `reasoning_effort` sent with openai-provider requests. Set explicitly empty to omit the field. |
 | `CLAUDISH_CODEX_EFFORT` | *(unset)* | `model_reasoning_effort` for the codex provider (e.g. `low`). Unset uses the codex CLI's configured effort. Applies to the rewrite only. |
@@ -623,11 +632,11 @@ see — much slower for identical output quality on this simple task. Keep it of
 
 With the default provider the rewriter runs **entirely locally** against
 ollama, so **no conversation content leaves your machine**. Setting
-`CLAUDISH_PROVIDER` to `anthropic` or `openai` changes that deliberately: every
-rewritten assistant message (and, with the Markdown hook enabled, file
-contents) is sent to that API. The same applies to pointing `CLAUDISH_OLLAMA`
-or `CLAUDISH_OPENAI_URL` at a remote/hosted endpoint. Don't switch away from
-local unless you understand and accept it.
+`CLAUDISH_PROVIDER` to `anthropic`, `openai`, or `orcarouter` changes that
+deliberately: every rewritten assistant message (and, with the Markdown hook
+enabled, file contents) is sent to that API. The same applies to pointing
+`CLAUDISH_OLLAMA` or `CLAUDISH_OPENAI_URL` at a remote/hosted endpoint. Don't
+switch away from local unless you understand and accept it.
 
 ---
 
@@ -646,7 +655,7 @@ claudish-to-english/
 ├── rewrite-md.sh           # markdown-file rewrite hook (opt-in)
 ├── claudish-ctl.sh         # runtime state switcher + dashboard backing /claudish (writes the flag files)
 ├── session-notice.sh       # SessionStart hook: announces leftover /claudish overrides on a new session
-├── providers.sh            # provider layer (ollama/anthropic/openai), sourced by both hooks
+├── providers.sh            # provider layer (ollama/anthropic/openai/orcarouter), sourced by both hooks
 ├── lang.sh                 # output-language resolver (env + .claude/settings*.json), sourced by both hooks
 ├── CHANGELOG.md            # notable changes per version (Keep a Changelog)
 ├── LICENSE
