@@ -218,8 +218,6 @@ by Davide Di Pumpo, adapted to the provider layer and language resolver.
   still replaces the whole prompt.
 - With no language configured, the display label reads `💬 In plain language:`
   rather than `💬 In plain English:`, which it can no longer promise.
-||||||| parent of 46e7964 (providers.sh: additive mutual TLS plumbing + ambient-key opt-in)
-
 ## [0.3.0] - 2026-08-13
 
 ### Added

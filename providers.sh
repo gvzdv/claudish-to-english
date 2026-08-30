@@ -171,7 +171,7 @@ llm_complete() {
   hdrfile=""; cfgerr=0
   # Build the optional mTLS flag list exactly once per call. With all three
   # vars unset the array is empty and ${arr[@]+...} expansion yields nothing,
-  # so the curl argv is byte-for-byte unchanged from upstream v0.3.0.
+  # so the curl argv is byte-for-byte unchanged when these vars are unset.
   CURL_TLS=()
   [ -n "${CLAUDISH_CLIENT_CERT:-}" ] && CURL_TLS+=(--cert "${CLAUDISH_CLIENT_CERT}")
   [ -n "${CLAUDISH_CLIENT_KEY:-}"  ] && CURL_TLS+=(--key  "${CLAUDISH_CLIENT_KEY}")
