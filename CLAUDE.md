@@ -15,10 +15,12 @@ the two ever disagree.
 |---|---|
 | `rewrite.sh` | `MessageDisplay` hook — the main event. Buffers streamed chunks, rewrites on the final one |
 | `rewrite-md.sh` | `PostToolUse` hook — rewrites Markdown files (opt-in, off by default) |
+| `claudish-md.sh` | on-demand CLI — rewrites a file or stdin; backs `/claudish file`. **Not a hook: fails loudly** |
+| `md-core.sh` | Markdown frontmatter split + system prompt, shared by `rewrite-md.sh` and `claudish-md.sh` |
 | `claudish-ctl.sh` | backs `/claudish`; writes the `~/.claude/claudish-*` flag files, prints the dashboard |
 | `session-notice.sh` | `SessionStart` hook — warns that flag files from an earlier session are still active |
-| `providers.sh` | provider layer (ollama / anthropic / openai / codex). Sourced by both hooks |
-| `lang.sh` | output-language resolver + the sanitiser for untrusted config values. Sourced by both hooks |
+| `providers.sh` | provider layer (ollama / anthropic / openai / codex). Sourced by both hooks and the CLI |
+| `lang.sh` | output-language resolver + the sanitiser for untrusted config values. Sourced by both hooks and the CLI |
 | `commands/claudish.md` | the `/claudish` slash command |
 | `hooks/hooks.json` | wires the three hooks |
 
@@ -32,6 +34,10 @@ On *any* problem — provider down, timeout, no `jq`, malformed payload, missing
 file — a hook emits nothing and exits 0, leaving Claude's original text on
 screen. This outranks every other consideration. Never add a code path where a
 failure can swallow or corrupt an assistant message.
+
+The one exception is `claudish-md.sh`, which is a command a person runs, not a
+hook: it reports failures (`claudish-md: <reason>`, non-zero exit) instead of
+staying silent. It still never prints or writes a partial or empty rewrite.
 
 When changing a hook, verify it directly. All three must print nothing, exit 0:
 

@@ -18,7 +18,10 @@ follows the message's own language, or the `language` setting Claude Code
 already answers in. See [Output language](#output-language).
 
 An optional second hook rewrites **Markdown files** into plain language when
-they are written or edited (opt-in, off by default).
+they are written or edited (opt-in, off by default). You can also rewrite any
+file, URL, or pasted text **on demand** — `/claudish file <path or URL>` in a session, or
+`claudish-md.sh` from a terminal. See
+[Rewriting a file or text on demand](#rewriting-a-file-or-text-on-demand).
 
 > Status: working prototype. Every hook fails **open** — if anything goes wrong
 > (provider down, timeout, missing key or dependency), you simply see Claude's
@@ -231,6 +234,7 @@ assistant message, mid-session, with nothing to relaunch:
 /claudish model X      use model X for whatever provider is configured
 /claudish model        reset to the provider default
 /claudish last         reprint the ORIGINAL of the last message (handy in replace mode)
+/claudish file PATH    rewrite a Markdown file (or URL) into NAME.plain.md (see "on demand" below)
 /claudish cycle        step off → append → replace → off
 /claudish reset        clear ALL overrides — back to your env/settings defaults
 ```
@@ -436,6 +440,90 @@ frontmatter, so the frontmatter stays on line 1 where parsers expect it.
 
 ---
 
+## Rewriting a file or text on demand
+
+The hooks only act on what Claude writes. To rewrite **any** Markdown file, a
+Markdown document at a URL, or any text at all, whenever you like, use
+`claudish-md.sh`. It gives the same
+rewrite as the Markdown hook (same prompt, same frontmatter handling, same
+provider, model, and language settings, `/claudish` overrides included), but
+you choose the input and where the result goes.
+
+**Inside a session**, point `/claudish` at a file:
+
+```
+/claudish file docs/architecture.md     → writes docs/architecture.plain.md
+/claudish file ~/notes/meeting notes.md → paths with spaces work; no quotes needed
+/claudish file https://github.com/o/r/blob/main/docs/setup.md
+                                        → writes ./setup.plain.md in the session's folder
+```
+
+It writes `NAME.plain.md` next to the file and replies with one line naming it.
+The rewrite is not shown in the chat, so Claude never has to read the whole
+document back to you. Open the file to read it.
+
+**From a terminal**, run the script directly:
+
+```bash
+claudish-md.sh notes.md                 # rewrite -> stdout
+claudish-md.sh notes.md -o simple.md    # rewrite -> simple.md
+claudish-md.sh notes.md --sibling       # rewrite -> notes.plain.md
+pbpaste | claudish-md.sh                # any text on stdin -> stdout
+claudish-md.sh -l English notes.md      # into English, whatever the input language
+claudish-md.sh https://example.com/guide.md          # a URL -> stdout
+claudish-md.sh file:///Users/me/notes/guide.md       # a file:// link works like the path
+claudish-md.sh 'C:\Users\me\notes\guide.md'         # Windows paths too (Git Bash); quote backslashes
+claudish-md.sh --sibling https://example.com/guide.md  # -> ./guide.plain.md
+```
+
+**URLs.** Any public `http(s)` link to a Markdown or plain-text file works.
+Links to a *rendered* page on GitHub (`…/blob/…`), GitLab (`…/-/blob/…`), or
+Gist are quietly switched to the raw file, because the page itself is HTML. Any
+other page that comes back as HTML is refused with a message, rather than
+rewritten. The download is unauthenticated, so private repositories answer
+404. It is limited to `CLAUDISH_MD_MAX_BYTES` (1 MB) and
+`CLAUDISH_MD_FETCH_TIMEOUT` (30s), and only `http`/`https` are followed, on
+redirects too. With `--sibling` (and `/claudish file`) the output is named
+after the last part of the URL and written in the current folder, since there
+is no folder next to a URL.
+
+For an installed plugin, the script is in the plugin cache. Bare `/claudish`
+prints its full path on the `files` line of the dashboard. That path changes
+when the plugin updates, so if you use the script often, an alias that finds
+the latest copy keeps working:
+
+```bash
+alias claudish-md='"$(ls -d ~/.claude/plugins/cache/*/claudish-to-english/*/ | sort -V | tail -1)claudish-md.sh"'
+```
+
+**Output language.** Like everything else in the plugin, the rewrite keeps the
+input's own language unless a language is configured (see
+[Output language](#output-language)). For English specifically, pass
+`-l English`, or set `/claudish language English` once — that also applies to
+`/claudish file`.
+
+How it differs from the hook, on purpose — you asked for *this* rewrite:
+
+- **No gates.** It ignores `CLAUDISH_MD_DIR`, the `.md` extension, and
+  `CLAUDISH_MIN_CHARS`. It also runs while rewrites are paused
+  (`/claudish off`), because pausing only stops the automatic hooks.
+- **It fails loudly.** A hook fails open by leaving the original on screen. A
+  command you ran has no original to fall back to, so any problem (provider
+  down, timeout, missing key, bad path) prints `claudish-md: <reason>` and exits
+  non-zero. It still never prints or writes a partial or empty rewrite, and a
+  file target is replaced atomically, only on success.
+- **Timeout.** The LLM call uses `CLAUDISH_MD_TIMEOUT` (150s). Under
+  `/claudish file` it is capped at 110s (90s plus a 20s download for a URL),
+  because Claude Code stops a slash command's shell step at 2 minutes. For a long document on a slow local
+  model, run it from a terminal with a higher limit
+  (`CLAUDISH_MD_TIMEOUT=600 claudish-md.sh --sibling big.md`), or pick a
+  smaller model.
+
+Exit codes: `0` done, `1` the rewrite failed, `2` usage error. When writing a
+file, the absolute path written is printed on stdout.
+
+---
+
 ## Providers
 
 Rewrites go through one of four providers, selected with `CLAUDISH_PROVIDER`
@@ -571,13 +659,15 @@ Notes:
 | `CLAUDISH_MIN_CHARS` | `200` | Skip messages/files whose prose (code stripped) is shorter than this. |
 | `CLAUDISH_STUB` | `0` | `1` = deterministic stub instead of the model (for testing display mechanics). |
 | `CLAUDISH_TIMEOUT` | `45` | LLM client timeout for the **display** hook (seconds). Keep it below that hook's `timeout` (60s). |
-| `CLAUDISH_MD_TIMEOUT` | `150` | LLM client timeout for the **Markdown file** hook (seconds). Higher on purpose — a large model rewriting a long doc is slow. Keep it below the `PostToolUse` hook `timeout` (180s). |
+| `CLAUDISH_MD_TIMEOUT` | `150` | LLM client timeout for the **Markdown file** hook and for `claudish-md.sh` (seconds). Higher on purpose — a large model rewriting a long doc is slow. Keep it below the `PostToolUse` hook `timeout` (180s). |
 | `CLAUDISH_DEBUG` | `0` | `1` = write a debug log to `$TMPDIR/claudish-to-english/`. |
 | `CLAUDISH_NOTICE` | `1` | `1` = show a one-time, once-per-session notice when a rewrite is skipped because the provider is unreachable, the call timed out, a key is missing, or the model isn't available (display hook appends it on screen; Markdown hook uses a `systemMessage`). Also gates the `SessionStart` notice that announces leftover `/claudish` overrides. `0` = stay fully silent (pure fail-open). |
 | `CLAUDISH_MD_DIR` | *(unset)* | **Markdown hook opt-in.** Only `*.md` under this directory is rewritten. Unset = the Markdown hook does nothing. |
 | `CLAUDISH_MD_MODE` | `sibling` | `sibling` (`NAME.plain.md`) or `overwrite` (in place). |
-| `CLAUDISH_MD_SUFFIX` | `plain` | Sibling infix: `NAME.<suffix>.md`. |
-| `CLAUDISH_MD_PROMPT_FILE` | *(unset)* | Path to a file whose contents replace the Markdown hook's system prompt (whole prompt, not merged). Empty/unreadable falls back to the built-in default. |
+| `CLAUDISH_MD_FETCH_TIMEOUT` | `30` | Download timeout (seconds) when `claudish-md.sh` or `/claudish file` is given a URL. Capped at 20 under `/claudish file`. |
+| `CLAUDISH_MD_MAX_BYTES` | `1048576` | Largest document `claudish-md.sh` will download from a URL; anything bigger is refused. |
+| `CLAUDISH_MD_SUFFIX` | `plain` | Sibling infix: `NAME.<suffix>.md` (Markdown hook, `claudish-md.sh --sibling`, `/claudish file`). |
+| `CLAUDISH_MD_PROMPT_FILE` | *(unset)* | Path to a file whose contents replace the Markdown system prompt (whole prompt, not merged), for both the hook and `claudish-md.sh`. Empty/unreadable falls back to the built-in default. |
 
 In `hooks/hooks.json` the display hook (`MessageDisplay`) has a 60s `timeout` and
 the Markdown hook (`PostToolUse`) has a 180s `timeout` — the file hook is higher
@@ -624,8 +714,10 @@ see — much slower for identical output quality on this simple task. Keep it of
 With the default provider the rewriter runs **entirely locally** against
 ollama, so **no conversation content leaves your machine**. Setting
 `CLAUDISH_PROVIDER` to `anthropic` or `openai` changes that deliberately: every
-rewritten assistant message (and, with the Markdown hook enabled, file
-contents) is sent to that API. The same applies to pointing `CLAUDISH_OLLAMA`
+rewritten assistant message (and, with the Markdown hook enabled or when you
+run `claudish-md.sh` / `/claudish file`, file contents) is sent to that API.
+Giving `claudish-md.sh` a URL also makes a plain download request to that host,
+whatever the provider. The same applies to pointing `CLAUDISH_OLLAMA`
 or `CLAUDISH_OPENAI_URL` at a remote/hosted endpoint. Don't switch away from
 local unless you understand and accept it.
 
@@ -639,11 +731,13 @@ claudish-to-english/
 │   ├── plugin.json         # plugin manifest
 │   └── marketplace.json    # so the repo can be added as a marketplace directly
 ├── commands/
-│   └── claudish.md         # /claudish slash command (runtime on/off, mode, language, model, last)
+│   └── claudish.md         # /claudish slash command (runtime on/off, mode, language, model, last, file)
 ├── hooks/
 │   └── hooks.json          # SessionStart -> session-notice.sh ; MessageDisplay -> rewrite.sh ; PostToolUse -> rewrite-md.sh
 ├── rewrite.sh              # display-rewrite hook
 ├── rewrite-md.sh           # markdown-file rewrite hook (opt-in)
+├── claudish-md.sh          # on-demand rewrite of a file or stdin (CLI; backs /claudish file)
+├── md-core.sh              # Markdown frontmatter split + prompt, shared by rewrite-md.sh and claudish-md.sh
 ├── claudish-ctl.sh         # runtime state switcher + dashboard backing /claudish (writes the flag files)
 ├── session-notice.sh       # SessionStart hook: announces leftover /claudish overrides on a new session
 ├── providers.sh            # provider layer (ollama/anthropic/openai), sourced by both hooks

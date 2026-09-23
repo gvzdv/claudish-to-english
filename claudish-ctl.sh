@@ -14,7 +14,7 @@
 # flags any that are in force so that persistence is never a silent surprise,
 # and the SessionStart hook (session-notice.sh) announces them on a new session.
 #
-# Usage: claudish-ctl.sh [status|on|off|append|replace|style [name]|language [name]|model [name]|last|cycle|reset]
+# Usage: claudish-ctl.sh [status|on|off|append|replace|style [name]|language [name]|model [name]|last|file <path>|cycle|reset]
 #   status        (default) print the dashboard: every setting, its value, and
 #                 WHERE that value comes from (env / a /claudish flag / default)
 #   on            resume rewrites (keeps the current mode)
@@ -30,6 +30,16 @@
 #   model X       use model X for whatever provider is configured (no name /
 #                 "default" resets to the provider default; also turns on)
 #   last          print the ORIGINAL text of the last assistant message
+#   file PATH     rewrite the file at PATH into NAME.plain.md beside it, via
+#                 claudish-md.sh, and print one line naming what was written.
+#                 PATH may be a public http(s) URL; the rewrite then lands in
+#                 the session's cwd, named after the URL (see claudish-md.sh).
+#                 Read-only as far as settings go — it writes no flag file,
+#                 and it runs even while rewrites are paused, because pausing
+#                 stops the automatic hooks, not a rewrite asked for by name.
+#                 The LLM call is capped at 110s — 90s, plus 20s for the
+#                 download, for a URL — because a slash command's shell step is
+#                 killed at 2 minutes; longer jobs belong in a terminal
 #   cycle         off -> append -> replace -> off
 #   reset         clear ALL overrides (off/mode/style/language/model) -> env
 #
@@ -195,6 +205,7 @@ dashboard() {
   printf '  %-9s %-16s · %s\n' 'provider' "${PROVIDER:-ollama}" "$_pl"
   printf '\n  change   /claudish on · off · append · replace · style <tldr|5y|caveman> · language <name> · model <name>\n'
   printf '  other    /claudish last · cycle · reset (clear all overrides) · status\n'
+  printf '  files    /claudish file <path>  → NAME.plain.md · terminal: %s/claudish-md.sh --help\n' "$SELF_DIR"
   if [ "$WARN" = "1" ]; then
     printf '\n  ⚠ lines above are /claudish overrides in ~/.claude/claudish-* that persist\n'
     printf '    across sessions. Reset one with its `default` form, or all with /claudish reset.\n'
@@ -226,6 +237,57 @@ case "$cmd" in
         | select(length>0) ]
       | last // "claudish-ctl: no assistant message in the transcript yet"
     ' "$tp" 2>/dev/null || { printf 'claudish-ctl: could not parse %s\n' "$tp" >&2; exit 1; }
+    exit 0
+    ;;
+  file)
+    # The path is taken from the RAW argument line, not the word-split
+    # positionals, so a path with runs of spaces survives intact. One pair of
+    # surrounding quotes is stripped (people paste paths quoted), and a leading
+    # ~/ expands. Relative paths resolve against the session's cwd, which is
+    # where the slash command runs. The line was never shell-parsed (see the
+    # here-doc note above), and it only ever reaches claudish-md.sh as a single
+    # quoted argument after --, so it cannot become an option or a command.
+    if [ -n "${_argline+x}" ]; then
+      f="$(printf '%s' "$_argline" | sed -e 's/^[[:space:]]*file//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    else
+      shift; f="$*"
+    fi
+    case "$f" in
+      \"*\") f="${f#\"}"; f="${f%\"}" ;;
+      \'*\') f="${f#\'}"; f="${f%\'}" ;;
+    esac
+    case "$f" in "~/"*) f="$HOME/${f#\~/}" ;; esac
+    [ -n "$f" ] || { printf 'claudish-ctl: usage: /claudish file <path or URL> — writes NAME.plain.md beside it (a URL: in the current directory) (terminal: %s/claudish-md.sh --help)\n' "$SELF_DIR" >&2; exit 2; }
+    # A slash command's !`…` block is killed at 2 minutes, which is not
+    # configurable — shorter than the 150s CLAUDISH_MD_TIMEOUT default. Cap the
+    # LLM call below it so a slow rewrite fails with a reason, not a kill.
+    # For a URL the download shares that budget: 20s to fetch, 90s to rewrite.
+    _cap=110; _fdt="${CLAUDISH_MD_FETCH_TIMEOUT:-30}"
+    case "$_fdt" in ''|*[!0-9]*) _fdt=30 ;; esac
+    case "$f" in
+      [Hh][Tt][Tt][Pp]://*|[Hh][Tt][Tt][Pp][Ss]://*) _cap=90; [ "$_fdt" -gt 20 ] && _fdt=20 ;;
+    esac
+    _mdt="${CLAUDISH_MD_TIMEOUT:-150}"
+    case "$_mdt" in ''|*[!0-9]*) _mdt=150 ;; esac
+    [ "$_mdt" -gt "$_cap" ] && _mdt="$_cap"
+    # stderr carries claudish-md's reason on failure and its notes on success;
+    # keep it apart from stdout, which is only ever the path written.
+    _errf="$(mktemp "${TMPDIR:-/tmp}/claudish-ctl-err.XXXXXX" 2>/dev/null)" || fail "cannot create a temp file"
+    trap 'rm -f "$_errf" 2>/dev/null' EXIT
+    written="$(CLAUDISH_MD_TIMEOUT="$_mdt" CLAUDISH_MD_FETCH_TIMEOUT="$_fdt" "$SELF_DIR/claudish-md.sh" --sibling -- "$f" 2>"$_errf")"; rc=$?
+    notes="$(cat "$_errf" 2>/dev/null)"; rm -f "$_errf" 2>/dev/null
+    if [ "$rc" != "0" ] || [ -z "$written" ]; then
+      printf '%s\n' "${notes:-claudish-md: failed (exit $rc)}" >&2
+      # Both the download and the rewrite are capped here, so either timeout
+      # gets the same pointer to the terminal, where neither cap applies.
+      case "$notes" in *"timed out"*)
+        printf 'claudish-ctl: /claudish file must finish inside the 2-minute limit Claude Code puts on slash commands. Run it from a terminal instead, where the timeouts can go higher: CLAUDISH_MD_TIMEOUT=600 %s/claudish-md.sh --sibling <path or URL>\n' "$SELF_DIR" >&2 ;;
+      esac
+      exit 1
+    fi
+    printf 'claudish: wrote %s (plain-language rewrite of %s; language: %s, model: %s)\n' \
+      "$written" "$f" "$(current_lang)" "$(current_model)"
+    [ -n "$notes" ] && printf '%s\n' "$notes"
     exit 0
     ;;
 esac
@@ -276,7 +338,7 @@ case "$cmd" in
     esac
     ;;
   *)
-    printf 'claudish-ctl: unknown command "%s" (use status|on|off|append|replace|style [name]|language [name]|model [name]|last|cycle|reset)\n' "$cmd" >&2
+    printf 'claudish-ctl: unknown command "%s" (use status|on|off|append|replace|style [name]|language [name]|model [name]|last|file <path>|cycle|reset)\n' "$cmd" >&2
     exit 2
     ;;
 esac
