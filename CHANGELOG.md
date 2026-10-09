@@ -5,40 +5,38 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.0] - 2026-10-09
 
 ### Added
-- **Rewrite any file or text on demand.** The Markdown hook only ever acted on
-  files Claude itself wrote inside `CLAUDISH_MD_DIR`, so there was no way to
-  run the rewrite on a document you already had, or on text from elsewhere.
-  - The new `claudish-md.sh` rewrites a file or stdin and prints Markdown to
-    stdout. `-o PATH` or `--sibling` (`NAME.plain.md`) writes a file instead,
-    and `-l LANGUAGE` picks the output language for that run.
-  - `/claudish file <path>` does the same from inside a session. It writes
-    `NAME.plain.md` beside the file and replies with one line naming it, so
-    Claude does not re-read a whole document into the chat.
-  - It uses the same provider, model, language, and prompt settings as the
-    hooks, including `/claudish` overrides. It deliberately skips the
-    directory, extension, and length gates, and the paused state, because a
-    person asked for this specific rewrite.
-  - It is not a hook, so it fails loudly (a reason and a non-zero exit) instead
-    of silently. It still never prints or writes a partial rewrite.
-  - **Both also take a URL.** Any public `http(s)` link works. Links to a
-    rendered GitHub, GitLab, or Gist page are switched to the raw file first,
-    because the page itself is HTML, and any other HTML response is refused
-    rather than rewritten. The download is capped at 1 MB and 30s
-    (`CLAUDISH_MD_MAX_BYTES`, `CLAUDISH_MD_FETCH_TIMEOUT`) and follows only
+- **Rewrite any file, URL, or text on demand.** The Markdown hook only acts on
+  files Claude itself writes inside `CLAUDISH_MD_DIR`, so there was no way to
+  rewrite a document you already had, or text from elsewhere.
+  - `claudish-md.sh` rewrites a file or stdin and prints Markdown to stdout.
+    `-o PATH` or `--sibling` (`NAME.plain.md`) writes a file instead, and
+    `-l LANGUAGE` picks the output language for that run.
+  - `/claudish file <path or URL>` does the same inside a session. It writes
+    `NAME.plain.md` and replies with one line naming it, so Claude does not
+    read the whole document into the chat.
+  - Both use the hooks' provider, model, language, and prompt settings,
+    `/claudish` overrides included. They skip the directory, extension, and
+    length gates, and run while rewrites are paused, because a person asked
+    for this specific rewrite.
+  - Neither is a hook, so a failure is reported (a reason and a non-zero exit)
+    rather than silent. A partial rewrite is never printed or written.
+  - **Public `http(s)` URLs work too.** Links to a rendered GitHub, GitLab, or
+    Gist page are switched to the raw file, and any other HTML response is
+    refused rather than rewritten. Downloads are capped at 1 MB and 30s
+    (`CLAUDISH_MD_MAX_BYTES`, `CLAUDISH_MD_FETCH_TIMEOUT`) and follow only
     `http`/`https` redirects. `--sibling` names the output after the URL and
-    writes it in the current folder. A `file://` link is accepted too and is
-    treated as the local path it names, so a link copied from a browser or an
-    editor works as-is. On Windows (Git Bash), drive paths are accepted in
-    any of `C:\dir\doc.md`, `C:/dir/doc.md`, and `file:///C:/dir/doc.md`
-    form, including with `/claudish file`.
-  - Bare `/claudish` now shows the script's path, for use from a terminal.
+    writes it in the current folder.
+  - `file://` links are read as the local path they name, and on Windows (Git
+    Bash) drive paths work as `C:\dir\doc.md`, `C:/dir/doc.md`, or
+    `file:///C:/dir/doc.md`, including with `/claudish file`.
   - Under `/claudish file` the LLM call is capped at 110s (90s plus a 20s
     download for a URL), because Claude Code stops a slash command's shell
-    step at 2 minutes. A slow rewrite then fails with a reason and a pointer
-    to the terminal, instead of being cut off.
+    step at 2 minutes. A slow rewrite fails with a reason and a pointer to the
+    terminal instead of being cut off.
+  - Bare `/claudish` now shows the script's path, for use from a terminal.
 
 ### Changed
 - **The Markdown frontmatter split and system prompt moved into `md-core.sh`,**
@@ -314,7 +312,8 @@ by Davide Di Pumpo, adapted to the provider layer and language resolver.
 - Optional `PostToolUse` Markdown-file rewrite hook (`rewrite-md.sh`), opt-in by
   directory (`CLAUDISH_MD_DIR`), with `sibling` and `overwrite` modes.
 
-[Unreleased]: https://github.com/gvzdv/claudish-to-english/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/gvzdv/claudish-to-english/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/gvzdv/claudish-to-english/compare/v0.7.0...v0.7.1
