@@ -5,6 +5,16 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **README warns about the interactive-TUI rendering bug.** On some setups
+  Claude Code drops `MessageDisplay` output in the interactive UI (it still
+  shows in `claude -p`). The upstream report was closed for inactivity rather
+  than fixed, so affected users installed the plugin, saw nothing, and had no
+  way to tell it was not their configuration. The note says how to confirm it
+  with `CLAUDISH_DEBUG=1` and points to #5.
+
 ## [0.10.0] - 2026-10-09
 
 ### Added

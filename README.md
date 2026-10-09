@@ -161,6 +161,19 @@ claude --plugin-dir /path/to/claudish-to-english
 Run `/reload-plugins` after edits; if it doesn't load, check the `/plugin`
 **Errors** tab.
 
+> [!WARNING]
+> **Known issue: no plain-English block in the interactive TUI on some setups.**
+> On some machines Claude Code drops the hook's output in the interactive
+> terminal UI, even though the hook runs and produces a rewrite. The same
+> setup shows the block in `claude -p`. This is a Claude Code bug, not a
+> plugin one. It was reported upstream, and the report was closed for
+> inactivity, not fixed. Reports so far cover macOS and Linux (including under
+> tmux), Claude Code 2.1.221 – 2.1.251. To check your setup, run with
+> `CLAUDISH_DEBUG=1`: if the debug log shows a rewrite but nothing appears on
+> screen, you are hitting it. On-demand rewrites (`/claudish file`,
+> `claudish-md.sh`) are not affected. Tracked in
+> [#5](https://github.com/gvzdv/claudish-to-english/issues/5).
+
 ---
 
 ## Configuring the plugin
