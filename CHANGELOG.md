@@ -5,6 +5,22 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **`CLAUDISH_MIN_CHARS` now counts characters, not bytes.** The gate that
+  skips short messages and short Markdown files measured the code-stripped
+  prose with `wc -c`, so a single threshold meant a different length in every
+  script: at the default 200 an English message had to reach 200 characters,
+  a Cyrillic one crossed it at 100, and a Japanese one at 67 — every CJK
+  character is three bytes. A session that is not in a Latin script therefore
+  had short messages rewritten that the setting said to leave alone, and no
+  value of `CLAUDISH_MIN_CHARS` could express the length the user meant. Both
+  hooks now count codepoints with `jq`, which they already require, so the
+  number means the same thing whatever the session is written in. ASCII prose
+  is unaffected — one byte per character, so the same text passes and fails the
+  gate as before.
+
 ## [0.9.0] - 2026-08-28
 
 ### Added

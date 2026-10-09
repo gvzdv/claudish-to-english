@@ -49,7 +49,7 @@
 #                                     defaults are documented in providers.sh)
 #   CLAUDISH_MODEL     <model>        overrides the provider's default model
 #   CLAUDISH_OLLAMA    <base url>     (default http://localhost:11434)
-#   CLAUDISH_MIN_CHARS <n>            skip files whose prose (code stripped) is shorter (default 200)
+#   CLAUDISH_MIN_CHARS <n>            skip files whose prose (code stripped) is shorter than this many CHARACTERS (default 200)
 #   CLAUDISH_STUB      1|0            deterministic stub instead of the LLM (mechanics testing)
 #   CLAUDISH_MD_TIMEOUT <seconds>     LLM client timeout for file rewrites (default 150).
 #                                     Large models rewriting long docs are slow; this is
@@ -172,10 +172,13 @@ if [ "$first_line" = "$MARKER" ] || [ "$body_first" = "$MARKER" ]; then
   pass_through "already rewritten (marker present)"
 fi
 
-# ---- prose length gate (strip fenced code, count non-space chars) ---------
+# ---- prose length gate (strip fenced code, count non-space characters) ----
+# Codepoints, not bytes — see the same gate in rewrite.sh for why. Both hooks
+# read one CLAUDISH_MIN_CHARS, so they have to measure it the same way.
 prose_len="$(printf '%s' "$body" \
   | awk 'BEGIN{f=0} /^```/{f=!f; next} f==0{print}' \
-  | tr -d '[:space:]' | wc -c | tr -d ' ')"
+  | tr -d '[:space:]' | jq -Rs 'length' 2>/dev/null)"
+case "$prose_len" in ''|*[!0-9]*) prose_len=0 ;; esac
 dbg "prose_len=$prose_len min=$MIN_CHARS fm_lines=${fm_lines:-0}"
 [ "${prose_len:-0}" -ge "$MIN_CHARS" ] || pass_through "below min_chars"
 
