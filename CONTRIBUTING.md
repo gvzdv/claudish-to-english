@@ -21,6 +21,9 @@ missing file — a hook must emit nothing and `exit 0`, which leaves Claude's
 original text on screen. A display hook that can swallow or corrupt an
 assistant's answer is worse than no plugin at all. If you are unsure whether
 your change preserves this, say so in the PR and it will get checked.
+The one script that is not a hook, `claudish-md.sh` (behind `/claudish file`),
+is the exception: a person ran it, so it reports every failure instead of
+hiding it, but it still never prints or writes a partial rewrite.
 
 **The plugin is display-only.** Claude's own reasoning and the saved transcript
 always keep the original text. Nothing you add should change what Claude
@@ -97,6 +100,22 @@ printf ''                                | bash rewrite.sh; echo "rc=$?"
 printf '{"session_id":"s","final":true}' | bash rewrite.sh; echo "rc=$?"   # no message_id
 ```
 
+**Drive the on-demand rewrite.** `claudish-md.sh` is not a hook: it must fail
+*loudly* (a `claudish-md:` reason on stderr, non-zero exit), and it must never
+print or write a partial rewrite. Check both the success and the failure path:
+
+```bash
+printf -- '---\ntitle: x\n---\n# Hi\n\nSome prose.\n' > /tmp/claudish-test.md
+CLAUDISH_STUB=1 CLAUDISH_LANG_FILE=/nonexistent CLAUDISH_MODEL_FILE=/nonexistent \
+  bash claudish-md.sh -l English /tmp/claudish-test.md       # frontmatter kept verbatim
+CLAUDISH_OLLAMA=http://127.0.0.1:1 CLAUDISH_MD_TIMEOUT=3 \
+  bash claudish-md.sh /tmp/claudish-test.md -o /tmp/x.md; echo "rc=$?"   # rc=1, no /tmp/x.md
+printf 'file /tmp/claudish-test.md\n' | CLAUDISH_STUB=1 bash claudish-ctl.sh --stdin-args
+CLAUDISH_STUB=1 bash claudish-md.sh \
+  https://github.com/gvzdv/claudish-to-english/blob/main/README.md | head   # blob -> raw
+CLAUDISH_STUB=1 bash claudish-md.sh https://github.com/gvzdv; echo "rc=$?"   # HTML: refused, rc=1
+```
+
 **If you touched anything user-visible on screen, check it in a real session**
 rather than only in the JSON. The terminal renderer is not a pass-through — see
 the ANSI trap below.
@@ -156,6 +175,14 @@ prefix never matches and every `/claudish` call fails with
 on. This has regressed twice, once through a merge conflict resolution. Do not
 "fix" it back.
 
+The same frontmatter sets `disable-model-invocation: true`, and it must stay.
+Plugin commands are otherwise offered to Claude as tools it can call on its
+own, and the `allowed-tools` rule above pre-approves the script for whoever
+calls it. With the flag off, Claude could run `/claudish file <URL>` — fetch
+any URL, read any file it can name and send it to the provider, write
+`NAME.plain.md` beside it — or flip a persistent setting, all without a
+permission prompt. `/claudish` is the user's control; only the user types it.
+
 ### Untrusted config values must go through `lang.sh`
 
 The `language` key is read from `.claude/settings*.json`, and a project's
@@ -168,6 +195,13 @@ value at three words / 30 codepoints. Do not print a raw config value.
 
 `rewrite.sh` and `rewrite-md.sh` source both. A change to either affects the
 Markdown hook too, and a missing file must degrade rather than stop rewrites.
+
+`claudish-md.sh` (the on-demand CLI behind `/claudish file`) sources both as
+well, plus `md-core.sh`, which it shares with `rewrite-md.sh`. The Markdown
+prompt and the frontmatter split live **only** in `md-core.sh`: change them there,
+and both the hook and the CLI follow. The two callers differ only in failure
+policy. The hook passes through silently; the CLI refuses to run without all
+three libraries and reports every failure.
 
 ---
 

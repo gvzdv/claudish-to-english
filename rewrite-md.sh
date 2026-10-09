@@ -19,6 +19,10 @@
 # The writes here go through the shell, NOT Claude's Write tool, so they do
 # NOT re-trigger PostToolUse — no loop.
 #
+# To rewrite a file ON DEMAND (any path, no CLAUDISH_MD_DIR, output to stdout
+# or a file), use claudish-md.sh or `/claudish file <path>`. Both share this
+# hook's frontmatter handling and prompt through md-core.sh.
+#
 # FAIL-OPEN CONTRACT: on ANY problem (disabled, no jq/curl, not under the dir,
 # not markdown, parse error, LLM down, timeout, empty rewrite) the hook leaves
 # the file exactly as the agent wrote it and exits 0. It never writes a partial
@@ -76,7 +80,6 @@ LLM_TIMEOUT="${CLAUDISH_MD_TIMEOUT:-150}"
 DEBUG="${CLAUDISH_DEBUG:-0}"
 NOTICE="${CLAUDISH_NOTICE:-1}"
 
-MARKER="<!-- claudish-to-english:rewritten -->"
 LOG_ROOT="${TMPDIR:-/tmp}/claudish-to-english"
 mkdir -p "$LOG_ROOT" 2>/dev/null || true
 
@@ -90,6 +93,12 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Provider layer (ollama/anthropic/openai): MODEL/OLLAMA defaults,
 # llm_complete, llm_notice_why. Missing file -> fail open.
 . "$SELF_DIR/providers.sh" 2>/dev/null || pass_through "no providers.sh"
+
+# Markdown core (md-core.sh): frontmatter split, prose measure, system prompt,
+# marker — shared with the claudish-md.sh CLI so both rewrite a file the same
+# way. Missing file -> fail open.
+. "$SELF_DIR/md-core.sh" 2>/dev/null || pass_through "no md-core.sh"
+MARKER="$MD_MARKER"
 
 # Output-language resolver (lang.sh). Defined here first so a missing file
 # degrades to "no configured language" — the rewrite then keeps the file's own
@@ -144,24 +153,11 @@ dbg "candidate: $file_abs mode=$MD_MODE bytes=${#content}"
 first_line="$(printf '%s' "$content" | head -n1)"
 
 # ---- protect YAML frontmatter --------------------------------------------
-# If the file opens with a '---' line and has a closing '---', hold the whole
-# frontmatter block (delimiters included) aside and rewrite only the body.
-# This runs BEFORE the idempotency check on purpose: in overwrite mode the
-# marker goes after the frontmatter, because frontmatter is only frontmatter
-# when it starts on line 1 of the file.
-fm=""
-body="$content"
-if [ "$first_line" = "---" ]; then
-  total="$(printf '%s\n' "$content" | wc -l | tr -d ' ')"
-  fm="$(printf '%s\n' "$content" | awk 'NR==1{print;next} /^---[[:space:]]*$/{print;exit} {print}')"
-  fm_lines="$(printf '%s\n' "$fm" | wc -l | tr -d ' ')"
-  if [ "$fm_lines" -lt "$total" ]; then
-    body="$(printf '%s\n' "$content" | awk -v n="$fm_lines" 'NR>n')"
-  else
-    fm=""
-    dbg "frontmatter had no closing '---'; treating whole file as body"
-  fi
-fi
+# md_split (md-core.sh) holds a leading '---' ... '---' block aside as $fm so
+# only $body is rewritten. This runs BEFORE the idempotency check on purpose: in
+# overwrite mode the marker goes after the frontmatter, because frontmatter is
+# only frontmatter when it starts on line 1 of the file.
+md_split "$content"
 
 # ---- idempotency: never re-chew a file we already rewrote (overwrite) -----
 # The marker is the first non-blank line of the BODY, after any frontmatter.
@@ -173,12 +169,9 @@ if [ "$first_line" = "$MARKER" ] || [ "$body_first" = "$MARKER" ]; then
 fi
 
 # ---- prose length gate (strip fenced code, count non-space characters) ----
-# Codepoints, not bytes — see the same gate in rewrite.sh for why. Both hooks
-# read one CLAUDISH_MIN_CHARS, so they have to measure it the same way.
-prose_len="$(printf '%s' "$body" \
-  | awk 'BEGIN{f=0} /^```/{f=!f; next} f==0{print}' \
-  | tr -d '[:space:]' | jq -Rs 'length' 2>/dev/null)"
-case "$prose_len" in ''|*[!0-9]*) prose_len=0 ;; esac
+# Codepoints, not bytes — md_prose_len (md-core.sh) explains why. rewrite.sh
+# reads the same CLAUDISH_MIN_CHARS, so both hooks must measure it the same way.
+prose_len="$(md_prose_len "$body")"
 dbg "prose_len=$prose_len min=$MIN_CHARS fm_lines=${fm_lines:-0}"
 [ "${prose_len:-0}" -ge "$MIN_CHARS" ] || pass_through "below min_chars"
 
@@ -196,26 +189,9 @@ if [ "$STUB" = "1" ]; then
   rewrite="STUB-SIMPLIFIED-MD ✦ mode=$MD_MODE prose_len=$prose_len ✦"$'\n\n'"$body"
   dbg "stub rewrite"
 else
-  # Base system prompt, replaceable via CLAUDISH_MD_PROMPT_FILE (a file holding
-  # the whole prompt). An unset/empty/unreadable file falls back to this default.
-  sys="You rewrite Markdown prose into much simpler, plain language. Write the rewrite in the same language as the file you are rewriting. Keep every fact, name, number, link, and file path. Keep all Markdown structure — headings, lists, tables, and links. Do NOT change fenced code blocks or any YAML frontmatter; reproduce them exactly. Use short sentences and everyday words. Output ONLY the rewritten Markdown, with no preamble, labels, or commentary."
-  # A configured language overrides "same language as the file" — it is the last
-  # word in the prompt, and it names the language explicitly. The line goes on
-  # BEFORE the prompt-file check on purpose: a usable CLAUDISH_MD_PROMPT_FILE
-  # replaces the whole prompt, this line included. That file is the user's
-  # prompt in full, and it states its own language.
-  if [ -n "$OUT_LANG" ]; then
-    sys="$sys"$'\n\n'"Write the rewritten Markdown in $OUT_LANG instead, whatever language the original is in. Use $OUT_LANG for all prose, including headings, list items, and table cells. Keep code, identifiers, file paths, link targets, and YAML frontmatter exactly as they are."
-  fi
-  if [ -n "${CLAUDISH_MD_PROMPT_FILE:-}" ]; then
-    _p=""
-    [ -r "$CLAUDISH_MD_PROMPT_FILE" ] && _p="$(cat "$CLAUDISH_MD_PROMPT_FILE" 2>/dev/null)"
-    if [ -n "$_p" ]; then
-      sys="$_p"
-    else
-      dbg "CLAUDISH_MD_PROMPT_FILE set but empty/unreadable ($CLAUDISH_MD_PROMPT_FILE); using default prompt"
-    fi
-  fi
+  # Built-in prompt + language line, all replaceable via
+  # CLAUDISH_MD_PROMPT_FILE — see md_system_prompt in md-core.sh.
+  sys="$(md_system_prompt "$OUT_LANG")"
   llm_complete "$sys" "$body" || pass_through "req build failed"
 fi
 
