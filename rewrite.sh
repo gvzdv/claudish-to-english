@@ -68,8 +68,9 @@
 #                                           are documented in providers.sh)
 #   CLAUDISH_MODEL     <model>         overrides the provider's default model
 #   CLAUDISH_OLLAMA    <base url>      (default http://localhost:11434)
-#   CLAUDISH_MIN_CHARS <n>            skip messages shorter than this
-#                                           (prose, code stripped) (default 200)
+#   CLAUDISH_MIN_CHARS <n>            skip messages whose prose (code stripped)
+#                                           is shorter than this many CHARACTERS
+#                                           (default 200)
 #   CLAUDISH_STUB      1|0            deterministic stub instead of the LLM
 #                                           (for display-mechanics testing)
 #   CLAUDISH_TIMEOUT   <seconds>      LLM client timeout (default 45)
@@ -219,10 +220,18 @@ fi
 full="$(cat "$mdir"/*.part 2>/dev/null)"
 final_part="$mdir/$(printf '%08d' "$idx").part"
 
-# Prose length gate (strip fenced code blocks, then count non-space chars).
+# Prose length gate (strip fenced code blocks, then count non-space characters).
+# jq counts CODEPOINTS where `wc -c` counted bytes, and that made one threshold
+# mean a different length in every script: at the default 200 an English message
+# had to reach 200 characters, a Cyrillic one crossed it at 100, and a Japanese
+# one at 67, because every CJK character is three bytes. `tr` stays byte-oriented
+# and is still right — every byte of a multibyte character is >= 0x80, so none of
+# them is ever mistaken for whitespace. A length that does not come back as a
+# number falls open to "too short to rewrite", leaving the original on screen.
 prose_len="$(printf '%s' "$full" \
   | awk 'BEGIN{f=0} /^```/{f=!f; next} f==0{print}' \
-  | tr -d '[:space:]' | wc -c | tr -d ' ')"
+  | tr -d '[:space:]' | jq -Rs 'length' 2>/dev/null)"
+case "$prose_len" in ''|*[!0-9]*) prose_len=0 ;; esac
 dbg "final: prose_len=$prose_len min=$MIN_CHARS mode=$MODE full_bytes=${#full}"
 
 cleanup() { rm -rf "$mdir" 2>/dev/null || true; }

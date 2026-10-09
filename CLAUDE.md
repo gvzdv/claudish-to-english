@@ -92,7 +92,10 @@ always false, `/dev/tty` will not open) so it cannot detect either case.
 `Bash("${CLAUDE_PLUGIN_ROOT}/claudish-ctl.sh":*)` — the quote closes *after* the
 path. The variant with the quote before the slash breaks every `/claudish` call
 with `Shell command permission check failed`. It has regressed twice; do not
-"correct" it back.
+"correct" it back. The same file sets `disable-model-invocation: true`: that
+`allowed-tools` rule pre-approves the script, so without it Claude could run
+`/claudish file <URL>` (a network fetch and a file write) with no permission
+prompt. Keep it.
 
 **Untrusted config values go through `lang.sh`.** The `language` key comes from
 `.claude/settings*.json`, which travels with a repository and is not necessarily

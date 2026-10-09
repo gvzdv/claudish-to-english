@@ -45,6 +45,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared by `rewrite-md.sh` and `claudish-md.sh`, so the hook and the
   on-demand command cannot drift apart. The hook's output is byte-for-byte
   unchanged.
+- **Claude can no longer run `/claudish` by itself.** The command now sets
+  `disable-model-invocation: true`; typing it works exactly as before. Its
+  `allowed-tools` rule pre-approves the script, so a model-invoked call ran
+  with no permission prompt. With `/claudish file` that would have let Claude
+  fetch any URL, or read any file and send it to the provider, unprompted —
+  and even before it, Claude could flip settings that persist across sessions
+  on a misread instruction.
+
+### Fixed
+- **`CLAUDISH_MIN_CHARS` now counts characters, not bytes.** The gate that
+  skips short messages and short Markdown files measured the code-stripped
+  prose with `wc -c`, so a single threshold meant a different length in every
+  script: at the default 200 an English message had to reach 200 characters,
+  a Cyrillic one crossed it at 100, and a Japanese one at 67 — every CJK
+  character is three bytes. A session that is not in a Latin script therefore
+  had short messages rewritten that the setting said to leave alone, and no
+  value of `CLAUDISH_MIN_CHARS` could express the length the user meant. Both
+  hooks now count codepoints with `jq`, which they already require, so the
+  number means the same thing whatever the session is written in. ASCII prose
+  is unaffected — one byte per character, so the same text passes and fails the
+  gate as before.
 
 ## [0.9.0] - 2026-08-28
 

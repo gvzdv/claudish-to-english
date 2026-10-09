@@ -11,9 +11,10 @@
 #                            body      everything after it (the whole input
 #                                      when there is no frontmatter)
 #                            fm_lines  line count of fm (unset when none)
-#   md_prose_len BODY      prints the non-space character count outside fenced
-#                          code — the measure the hook's CLAUDISH_MIN_CHARS
-#                          gate compares against
+#   md_prose_len BODY      prints the non-space character count (codepoints,
+#                          not bytes) outside fenced code — the measure the
+#                          hook's CLAUDISH_MIN_CHARS gate compares against.
+#                          Needs jq; prints 0 when the count fails
 #   md_system_prompt LANG  prints the system prompt: the built-in default, plus
 #                          a language line when LANG is non-empty, all replaced
 #                          by CLAUDISH_MD_PROMPT_FILE when that file is usable
@@ -46,10 +47,18 @@ md_split() {
   return 0
 }
 
+# Codepoints via jq, not bytes via wc -c: a byte count let a Cyrillic file pass
+# CLAUDISH_MIN_CHARS at half the length and a CJK one at a third, so one
+# threshold meant a different length per script. `tr -d '[:space:]'` stays
+# byte-oriented and stays correct — every byte of a multibyte character is
+# >= 0x80, so none is mistaken for whitespace. A count that is not a number
+# comes back as 0, which the hook reads as "too short" and so fails open.
 md_prose_len() {
-  printf '%s' "$1" \
+  _md_n="$(printf '%s' "$1" \
     | awk 'BEGIN{f=0} /^```/{f=!f; next} f==0{print}' \
-    | tr -d '[:space:]' | wc -c | tr -d ' '
+    | tr -d '[:space:]' | jq -Rs 'length' 2>/dev/null)"
+  case "$_md_n" in ''|*[!0-9]*) _md_n=0 ;; esac
+  printf '%s' "$_md_n"
 }
 
 md_system_prompt() {

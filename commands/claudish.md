@@ -2,6 +2,7 @@
 description: Show the claudish dashboard, or switch the rewrite on the fly — on, off, append, replace, "style tldr|5y|caveman", "language <name>", "model <name>", "last" (reprint the previous original), "file <path or URL>" (rewrite a Markdown file or URL into NAME.plain.md), cycle, or reset. No argument shows the dashboard.
 argument-hint: "[on|off|append|replace|style <tldr|5y|caveman|default>|language <name>|model <name>|last|file <path or URL>|cycle|reset|status]"
 allowed-tools: Bash("${CLAUDE_PLUGIN_ROOT}/claudish-ctl.sh":*)
+disable-model-invocation: true
 ---
 
 Claudish, after applying "$ARGUMENTS": !`"${CLAUDE_PLUGIN_ROOT}/claudish-ctl.sh" --stdin-args <<'CLAUDISH_ARGV_EOF'

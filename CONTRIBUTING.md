@@ -175,6 +175,14 @@ prefix never matches and every `/claudish` call fails with
 on. This has regressed twice, once through a merge conflict resolution. Do not
 "fix" it back.
 
+The same frontmatter sets `disable-model-invocation: true`, and it must stay.
+Plugin commands are otherwise offered to Claude as tools it can call on its
+own, and the `allowed-tools` rule above pre-approves the script for whoever
+calls it. With the flag off, Claude could run `/claudish file <URL>` — fetch
+any URL, read any file it can name and send it to the provider, write
+`NAME.plain.md` beside it — or flip a persistent setting, all without a
+permission prompt. `/claudish` is the user's control; only the user types it.
+
 ### Untrusted config values must go through `lang.sh`
 
 The `language` key is read from `.claude/settings*.json`, and a project's
