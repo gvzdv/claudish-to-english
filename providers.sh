@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Provider layer for claudish-to-english. Sourced by rewrite.sh and
+# Provider layer for naturalize. Sourced by rewrite.sh and
 # rewrite-md.sh — not executed directly.
 #
 # One function does the work: llm_complete SYSTEM USER runs a single chat
@@ -15,43 +15,43 @@
 # for the once-per-session setup notice ("" when the skip should stay
 # silent — an empty completion with no transport error).
 #
-# Providers (CLAUDISH_PROVIDER):
-#   ollama     (default) local ollama at CLAUDISH_OLLAMA
+# Providers (NATURALIZE_PROVIDER):
+#   ollama     (default) local ollama at NATURALIZE_OLLAMA
 #   codex      the OpenAI codex CLI, non-interactively (codex exec); uses the
 #              CLI's own login, so no API key and no local model server. The
 #              rewrite runs with --sandbox read-only outside any repo.
 #   agy        the Google Antigravity CLI headless (agy -p); uses the CLI's
 #              cached login from an interactive `agy` run, so no API key. Runs
-#              in CLAUDISH_AGY_WORKDIR (default a private temp dir), never the
+#              in NATURALIZE_AGY_WORKDIR (default a private temp dir), never the
 #              project, so the agent has no repo to act on.
-#   anthropic  Anthropic Messages API; key from CLAUDISH_ANTHROPIC_KEY or
-#              ANTHROPIC_API_KEY; base URL from CLAUDISH_ANTHROPIC_URL
+#   anthropic  Anthropic Messages API; key from NATURALIZE_ANTHROPIC_KEY or
+#              ANTHROPIC_API_KEY; base URL from NATURALIZE_ANTHROPIC_URL
 #   openai     any OpenAI-compatible /chat/completions endpoint (OpenAI,
 #              LM Studio, llama.cpp server, vLLM, OpenRouter, ...); base URL
-#              from CLAUDISH_OPENAI_URL, key from CLAUDISH_OPENAI_KEY or
+#              from NATURALIZE_OPENAI_URL, key from NATURALIZE_OPENAI_KEY or
 #              OPENAI_API_KEY. A key is only required for the default
 #              api.openai.com URL — local servers work keyless.
 #
 # Extra config:
-#   CLAUDISH_MODEL          overrides the per-provider default model
-#   CLAUDISH_MAX_TOKENS     completion cap for the anthropic provider (default
+#   NATURALIZE_MODEL          overrides the per-provider default model
+#   NATURALIZE_MAX_TOKENS     completion cap for the anthropic provider (default
 #                           4096; the Messages API requires an explicit cap)
-#   CLAUDISH_OPENAI_EFFORT  reasoning_effort for the openai provider. Unset
+#   NATURALIZE_OPENAI_EFFORT  reasoning_effort for the openai provider. Unset
 #                           defaults to "none" against api.openai.com
 #                           (GPT-5.6-class models otherwise burn reasoning
 #                           tokens on a plain rewrite) and to omitted against
 #                           custom compat URLs (some local servers reject
 #                           unknown fields). Set it EMPTY
-#                           (CLAUDISH_OPENAI_EFFORT=) to force the field off
+#                           (NATURALIZE_OPENAI_EFFORT=) to force the field off
 #                           even for api.openai.com — needed for models that
 #                           reject reasoning_effort entirely.
-#   CLAUDISH_CODEX_EFFORT   model_reasoning_effort for the codex provider (e.g.
+#   NATURALIZE_CODEX_EFFORT   model_reasoning_effort for the codex provider (e.g.
 #                           "low"). Unset uses the codex CLI's configured
 #                           effort. Applies to the rewrite only.
-#   CLAUDISH_AGY_EFFORT     --effort (low|medium|high) for the agy provider.
+#   NATURALIZE_AGY_EFFORT     --effort (low|medium|high) for the agy provider.
 #                           Unset uses the Antigravity CLI default.
-#   CLAUDISH_AGY_WORKDIR    working directory for agy -p (default
-#                           ${TMPDIR:-/tmp}/claudish-agy-ws).
+#   NATURALIZE_AGY_WORKDIR    working directory for agy -p (default
+#                           ${TMPDIR:-/tmp}/naturalize-agy-ws).
 #
 # The caller must define dbg() and set LLM_TIMEOUT before calling
 # llm_complete, and may set TIMEOUT_HINT to customize llm_notice_why's
@@ -59,34 +59,34 @@
 # comes back as an empty $rewrite, never an exit.
 # ---------------------------------------------------------------------------
 
-PROVIDER="${CLAUDISH_PROVIDER:-ollama}"
-OLLAMA="${CLAUDISH_OLLAMA:-http://localhost:11434}"
-# CLAUDISH_ANTHROPIC_AUTH=oauth borrows the Claude Code login: the access token
+PROVIDER="${NATURALIZE_PROVIDER:-ollama}"
+OLLAMA="${NATURALIZE_OLLAMA:-http://localhost:11434}"
+# NATURALIZE_ANTHROPIC_AUTH=oauth borrows the Claude Code login: the access token
 # is re-read on EVERY call from the macOS login Keychain, or from
 # ~/.claude/.credentials.json on other platforms (Claude Code refreshes it
 # while running, and this hook only ever fires while it runs; a token past its
 # expiresAt is discarded rather than sent). UNOFFICIAL — use at your own risk;
 # the hooks say so on screen once per session. The token is only ever sent to
 # https://api.anthropic.com: oauth mode refuses to run with a
-# CLAUDISH_ANTHROPIC_URL override, so the credential cannot leak to a proxy.
-ANTHROPIC_AUTH="${CLAUDISH_ANTHROPIC_AUTH:-}"
-ANTHROPIC_KEY="${CLAUDISH_ANTHROPIC_KEY:-${ANTHROPIC_API_KEY:-}}"
-OPENAI_KEY="${CLAUDISH_OPENAI_KEY:-${OPENAI_API_KEY:-}}"
-OPENAI_URL="${CLAUDISH_OPENAI_URL:-https://api.openai.com/v1}"
-ANTHROPIC_URL="${CLAUDISH_ANTHROPIC_URL:-https://api.anthropic.com}"
-MAX_TOKENS="${CLAUDISH_MAX_TOKENS:-4096}"
+# NATURALIZE_ANTHROPIC_URL override, so the credential cannot leak to a proxy.
+ANTHROPIC_AUTH="${NATURALIZE_ANTHROPIC_AUTH:-}"
+ANTHROPIC_KEY="${NATURALIZE_ANTHROPIC_KEY:-${ANTHROPIC_API_KEY:-}}"
+OPENAI_KEY="${NATURALIZE_OPENAI_KEY:-${OPENAI_API_KEY:-}}"
+OPENAI_URL="${NATURALIZE_OPENAI_URL:-https://api.openai.com/v1}"
+ANTHROPIC_URL="${NATURALIZE_ANTHROPIC_URL:-https://api.anthropic.com}"
+MAX_TOKENS="${NATURALIZE_MAX_TOKENS:-4096}"
 
 # Normalize away trailing slashes BEFORE any URL comparison, so
 # ".../v1/" gets the same key requirement and effort default as ".../v1".
 while [ "${OPENAI_URL%/}" != "$OPENAI_URL" ]; do OPENAI_URL="${OPENAI_URL%/}"; done
 while [ "${ANTHROPIC_URL%/}" != "$ANTHROPIC_URL" ]; do ANTHROPIC_URL="${ANTHROPIC_URL%/}"; done
 
-# An explicitly set CLAUDISH_OPENAI_EFFORT always wins — including an
+# An explicitly set NATURALIZE_OPENAI_EFFORT always wins — including an
 # explicitly EMPTY one, which omits the field (the escape hatch for models
 # that reject reasoning_effort). Only when unset does the api.openai.com
 # default of "none" apply.
-if [ -n "${CLAUDISH_OPENAI_EFFORT+x}" ]; then
-  OPENAI_EFFORT="$CLAUDISH_OPENAI_EFFORT"
+if [ -n "${NATURALIZE_OPENAI_EFFORT+x}" ]; then
+  OPENAI_EFFORT="$NATURALIZE_OPENAI_EFFORT"
 elif [ "$OPENAI_URL" = "https://api.openai.com/v1" ]; then
   OPENAI_EFFORT="none"
 else
@@ -94,20 +94,20 @@ else
 fi
 
 case "$PROVIDER" in
-  anthropic) MODEL="${CLAUDISH_MODEL:-claude-haiku-4-5}" ;;
-  openai)    MODEL="${CLAUDISH_MODEL:-gpt-5.6-luna}" ;;
-  codex)     MODEL="${CLAUDISH_MODEL:-}" ;;  # empty = the codex CLI's configured default
-  agy)       MODEL="${CLAUDISH_MODEL:-}" ;;  # empty = the Antigravity CLI's default (see `agy models`)
-  *)         MODEL="${CLAUDISH_MODEL:-gemma4:26b-mlx}" ;;
+  anthropic) MODEL="${NATURALIZE_MODEL:-claude-haiku-4-5}" ;;
+  openai)    MODEL="${NATURALIZE_MODEL:-gpt-5.6-luna}" ;;
+  codex)     MODEL="${NATURALIZE_MODEL:-}" ;;  # empty = the codex CLI's configured default
+  agy)       MODEL="${NATURALIZE_MODEL:-}" ;;  # empty = the Antigravity CLI's default (see `agy models`)
+  *)         MODEL="${NATURALIZE_MODEL:-gemma4:26b-mlx}" ;;
 esac
 
-# Runtime model override written by /claudish (claudish-ctl.sh): a file re-read
-# on every message, so a `/claudish model X` switch takes effect mid-session
-# where the frozen CLAUDISH_MODEL env cannot. It wins over the env/default
-# resolved above; `/claudish model default` removes it and restores that.
+# Runtime model override written by /naturalize (naturalize-ctl.sh): a file re-read
+# on every message, so a `/naturalize model X` switch takes effect mid-session
+# where the frozen NATURALIZE_MODEL env cannot. It wins over the env/default
+# resolved above; `/naturalize model default` removes it and restores that.
 # Sanitised to the characters model names use — the value also lands on the
 # request. Provider-agnostic: X is passed to whatever provider is configured.
-_model_file="${CLAUDISH_MODEL_FILE:-${HOME:-}/.claude/claudish-model}"
+_model_file="${NATURALIZE_MODEL_FILE:-${HOME:-}/.claude/naturalize-model}"
 if [ -f "$_model_file" ]; then
   _mf="$(head -c 128 "$_model_file" 2>/dev/null | tr -cd 'A-Za-z0-9:._/-' | head -c 64)"
   [ -n "$_mf" ] && MODEL="$_mf"
@@ -131,7 +131,7 @@ _llm_split_status() {
 # curl -K, keeping the key off the curl command line — argv is visible to
 # every local user via ps. Prints the file path; prints nothing on failure.
 _llm_key_file() {
-  _kf="$(mktemp "${TMPDIR:-/tmp}/claudish-key.XXXXXX" 2>/dev/null)" || return 0
+  _kf="$(mktemp "${TMPDIR:-/tmp}/naturalize-key.XXXXXX" 2>/dev/null)" || return 0
   _kv="$2"
   _kv="${_kv//\\/\\\\}"; _kv="${_kv//\"/\\\"}"
   printf 'header = "%s: %s"\n' "$1" "$_kv" > "$_kf" 2>/dev/null \
@@ -156,7 +156,7 @@ llm_complete() {
         # credential); proxy setups should use an API key instead.
         if [ "$ANTHROPIC_URL" != "https://api.anthropic.com" ]; then
           cfgerr=1
-          err="oauth mode sends the Claude Code token only to https://api.anthropic.com, but CLAUDISH_ANTHROPIC_URL is set to ${ANTHROPIC_URL} — unset the URL override or switch to an API key. Nothing was sent"
+          err="oauth mode sends the Claude Code token only to https://api.anthropic.com, but NATURALIZE_ANTHROPIC_URL is set to ${ANTHROPIC_URL} — unset the URL override or switch to an API key. Nothing was sent"
           dbg "anthropic oauth: refused non-default URL"
           return 0
         fi
@@ -283,19 +283,19 @@ llm_complete() {
       if ! command -v codex >/dev/null 2>&1; then
         dbg "codex: CLI not found"; curl_rc=1; return 0
       fi
-      _out="$(mktemp "${TMPDIR:-/tmp}/claudish-codex-out.XXXXXX" 2>/dev/null)" || return 2
-      _errf="$(mktemp "${TMPDIR:-/tmp}/claudish-codex-err.XXXXXX" 2>/dev/null)" || { rm -f "$_out"; return 2; }
+      _out="$(mktemp "${TMPDIR:-/tmp}/naturalize-codex-out.XXXXXX" 2>/dev/null)" || return 2
+      _errf="$(mktemp "${TMPDIR:-/tmp}/naturalize-codex-err.XXXXXX" 2>/dev/null)" || { rm -f "$_out"; return 2; }
       trap 'rm -f "$_out" "$_errf" 2>/dev/null' EXIT
       # codex has no separate system channel; prepend the system prompt.
       # No timeout(1) on stock macOS, so background the call and kill on expiry.
-      # CLAUDISH_CODEX_EFFORT overrides the CLI's configured reasoning effort
+      # NATURALIZE_CODEX_EFFORT overrides the CLI's configured reasoning effort
       # for the rewrite only ("low" keeps a per-message rewrite at seconds
       # even when the CLI's coding default is a high-effort tier).
       # --disable hooks: the rewrite must never fire hooks (incl. this plugin's
       # own Codex Stop hook) — that would recurse.
       codex exec --disable hooks --sandbox read-only --skip-git-repo-check -C "${TMPDIR:-/tmp}" \
         ${MODEL:+-m "$MODEL"} \
-        ${CLAUDISH_CODEX_EFFORT:+-c "model_reasoning_effort=${CLAUDISH_CODEX_EFFORT}"} \
+        ${NATURALIZE_CODEX_EFFORT:+-c "model_reasoning_effort=${NATURALIZE_CODEX_EFFORT}"} \
         -o "$_out" "$_sys
 
 $_user" >/dev/null 2>"$_errf" &
@@ -324,20 +324,20 @@ $_user" >/dev/null 2>"$_errf" &
       if ! command -v agy >/dev/null 2>&1; then
         dbg "agy: CLI not found"; curl_rc=1; return 0
       fi
-      _out="$(mktemp "${TMPDIR:-/tmp}/claudish-agy-out.XXXXXX" 2>/dev/null)" || return 2
-      _errf="$(mktemp "${TMPDIR:-/tmp}/claudish-agy-err.XXXXXX" 2>/dev/null)" || { rm -f "$_out"; return 2; }
+      _out="$(mktemp "${TMPDIR:-/tmp}/naturalize-agy-out.XXXXXX" 2>/dev/null)" || return 2
+      _errf="$(mktemp "${TMPDIR:-/tmp}/naturalize-agy-err.XXXXXX" 2>/dev/null)" || { rm -f "$_out"; return 2; }
       trap 'rm -f "$_out" "$_errf" 2>/dev/null' EXIT
       # agy -p prints the answer on stdout, diagnostics on stderr. Like codex
       # it has no system channel, so the system prompt is prepended. It runs
       # in a scratch dir, not the user's project, so the agent has no files
       # to touch. Same background-and-kill timeout as codex (no timeout(1)
       # on stock macOS); --print-timeout is a second guard on agy's side.
-      _ws="${CLAUDISH_AGY_WORKDIR:-${TMPDIR:-/tmp}/claudish-agy-ws}"
+      _ws="${NATURALIZE_AGY_WORKDIR:-${TMPDIR:-/tmp}/naturalize-agy-ws}"
       mkdir -p "$_ws" 2>/dev/null || { rm -f "$_out" "$_errf"; return 2; }
       ( cd "$_ws" && exec agy -p "$_sys
 
 $_user" ${MODEL:+--model "$MODEL"} \
-          ${CLAUDISH_AGY_EFFORT:+--effort "$CLAUDISH_AGY_EFFORT"} \
+          ${NATURALIZE_AGY_EFFORT:+--effort "$NATURALIZE_AGY_EFFORT"} \
           --output-format text --print-timeout "${LLM_TIMEOUT}s" ) >"$_out" 2>"$_errf" &
       _pid=$!
       _t=0
@@ -390,8 +390,8 @@ $_user" ${MODEL:+--model "$MODEL"} \
       # Server-side trouble: the URL is probably fine, the endpoint isn't.
       5??|429) err="HTTP $http from the endpoint — it may be down, overloaded, or rate-limiting" ;;
       *)   case "$PROVIDER" in
-             anthropic) err="HTTP $http with no error message in the response — check that CLAUDISH_ANTHROPIC_URL points at an Anthropic-compatible API base URL" ;;
-             *)         err="HTTP $http with no error message in the response — check that CLAUDISH_OPENAI_URL points at an OpenAI-compatible API base URL (usually ending in /v1)" ;;
+             anthropic) err="HTTP $http with no error message in the response — check that NATURALIZE_ANTHROPIC_URL points at an Anthropic-compatible API base URL" ;;
+             *)         err="HTTP $http with no error message in the response — check that NATURALIZE_OPENAI_URL points at an OpenAI-compatible API base URL (usually ending in /v1)" ;;
            esac ;;
     esac
   fi
@@ -414,9 +414,9 @@ llm_notice_why() {
       elif [ "$ANTHROPIC_AUTH" = "oauth" ] && [ -z "$ANTHROPIC_KEY" ]; then
         NOTICE_WHY="could not read a fresh Claude Code access token (macOS login Keychain, or ~/.claude/.credentials.json elsewhere) — check that Claude Code is logged in; rewrites are off"
       elif [ -z "$ANTHROPIC_KEY" ]; then
-        NOTICE_WHY="no Anthropic API key in this session's environment (set CLAUDISH_ANTHROPIC_KEY or ANTHROPIC_API_KEY), so rewrites are off"
+        NOTICE_WHY="no Anthropic API key in this session's environment (set NATURALIZE_ANTHROPIC_KEY or ANTHROPIC_API_KEY), so rewrites are off"
       elif [ "${truncated:-0}" = "1" ]; then
-        NOTICE_WHY="the rewrite hit the ${MAX_TOKENS}-token output cap and was discarded rather than shown half-finished — raise CLAUDISH_MAX_TOKENS"
+        NOTICE_WHY="the rewrite hit the ${MAX_TOKENS}-token output cap and was discarded rather than shown half-finished — raise NATURALIZE_MAX_TOKENS"
       elif [ -n "${err:-}" ]; then
         NOTICE_WHY="Anthropic API error: ${err}"
       elif [ "$curl_rc" = "28" ]; then
@@ -427,7 +427,7 @@ llm_notice_why() {
       ;;
     openai)
       if [ -z "$OPENAI_KEY" ] && [ "$OPENAI_URL" = "https://api.openai.com/v1" ]; then
-        NOTICE_WHY="no OpenAI API key in this session's environment (set CLAUDISH_OPENAI_KEY or OPENAI_API_KEY), so rewrites are off"
+        NOTICE_WHY="no OpenAI API key in this session's environment (set NATURALIZE_OPENAI_KEY or OPENAI_API_KEY), so rewrites are off"
       elif [ "${cfgerr:-0}" = "1" ]; then
         NOTICE_WHY="${err:-provider configuration error}"
       elif [ "${truncated:-0}" = "1" ]; then
@@ -442,7 +442,7 @@ llm_notice_why() {
       ;;
     codex)
       if ! command -v codex >/dev/null 2>&1; then
-        NOTICE_WHY="the codex CLI is not on PATH (install it or pick another CLAUDISH_PROVIDER), so rewrites are off"
+        NOTICE_WHY="the codex CLI is not on PATH (install it or pick another NATURALIZE_PROVIDER), so rewrites are off"
       elif [ "$curl_rc" = "28" ]; then
         NOTICE_WHY="the rewrite timed out after ${LLM_TIMEOUT}s — ${TIMEOUT_HINT:-raise the timeout}"
       elif [ -n "${err:-}" ]; then
@@ -451,7 +451,7 @@ llm_notice_why() {
       ;;
     agy)
       if ! command -v agy >/dev/null 2>&1; then
-        NOTICE_WHY="the agy CLI is not on PATH (install Antigravity or pick another CLAUDISH_PROVIDER), so rewrites are off"
+        NOTICE_WHY="the agy CLI is not on PATH (install Antigravity or pick another NATURALIZE_PROVIDER), so rewrites are off"
       elif [ "$curl_rc" = "28" ]; then
         NOTICE_WHY="the rewrite timed out after ${LLM_TIMEOUT}s — ${TIMEOUT_HINT:-raise the timeout}"
       elif [ -n "${err:-}" ]; then
@@ -468,11 +468,11 @@ llm_notice_why() {
       if [ "${truncated:-0}" = "1" ]; then
         NOTICE_WHY="the rewrite hit ollama's output-token limit and was discarded rather than shown half-finished — raise the model's output cap (num_predict) or use a shorter message"
       elif [ "$curl_rc" = "28" ]; then
-        NOTICE_WHY="the rewrite timed out after ${LLM_TIMEOUT}s (model too slow for this message) — ${TIMEOUT_HINT:-raise the timeout or set CLAUDISH_MODEL to a smaller model}"
+        NOTICE_WHY="the rewrite timed out after ${LLM_TIMEOUT}s (model too slow for this message) — ${TIMEOUT_HINT:-raise the timeout or set NATURALIZE_MODEL to a smaller model}"
       elif [ "$curl_rc" != "0" ]; then
         NOTICE_WHY="can't reach ollama at $OLLAMA — start it with \`ollama serve\` (see the plugin README)"
       elif printf '%s' "${err:-}" | grep -qi 'not found'; then
-        NOTICE_WHY="ollama model '$MODEL' isn't available — pull it with \`ollama pull $MODEL\`, or set CLAUDISH_MODEL to a model you have"
+        NOTICE_WHY="ollama model '$MODEL' isn't available — pull it with \`ollama pull $MODEL\`, or set NATURALIZE_MODEL to a model you have"
       elif [ -n "${err:-}" ]; then
         NOTICE_WHY="ollama returned an error: ${err}"
       fi
@@ -487,5 +487,5 @@ llm_notice_why() {
 llm_oauth_note() {
   [ "$PROVIDER" = "anthropic" ] || return 0
   [ "$ANTHROPIC_AUTH" = "oauth" ] || return 0
-  printf '%s' "rewrites are riding your Claude subscription through the local Claude Code login (CLAUDISH_ANTHROPIC_AUTH=oauth). This is UNOFFICIAL — Anthropic has not blessed it, it may stop working at any time, and it could put your Claude account at risk. Use at your own risk"
+  printf '%s' "rewrites are riding your Claude subscription through the local Claude Code login (NATURALIZE_ANTHROPIC_AUTH=oauth). This is UNOFFICIAL — Anthropic has not blessed it, it may stop working at any time, and it could put your Claude account at risk. Use at your own risk"
 }

@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# claudish-ctl.sh — runtime state switcher + dashboard backing /claudish.
+# naturalize-ctl.sh — runtime state switcher + dashboard backing /naturalize.
 #
 # The hooks re-read flag files on every message, so switches take effect mid-
 # session where the frozen env cannot:
-#   off-file   (default ~/.claude/claudish-off)    exists -> rewrites paused
-#   mode-file  (default ~/.claude/claudish-mode)   append|replace -> display mode
-#   style-file (default ~/.claude/claudish-style)  tldr|5y|caveman -> rewrite style (display hook)
-#   lang-file  (default ~/.claude/claudish-lang)   rewrite language (see lang.sh)
-#   model-file (default ~/.claude/claudish-model)  model (see providers.sh)
+#   off-file   (default ~/.claude/naturalize-off)    exists -> rewrites paused
+#   mode-file  (default ~/.claude/naturalize-mode)   append|replace -> display mode
+#   style-file (default ~/.claude/naturalize-style)  tldr|5y|caveman -> rewrite style (display hook)
+#   lang-file  (default ~/.claude/naturalize-lang)   rewrite language (see lang.sh)
+#   model-file (default ~/.claude/naturalize-model)  model (see providers.sh)
 # rewrite.sh reads mode/style; lang/model/off are shared with rewrite-md.sh.
 # They PERSIST across sessions (like the off-file) until cleared — the dashboard
 # flags any that are in force so that persistence is never a silent surprise,
 # and the SessionStart hook (session-notice.sh) announces them on a new session.
 #
-# Usage: claudish-ctl.sh [status|on|off|append|replace|style [name]|language [name]|model [name]|last|file <path>|cycle|reset]
+# Usage: naturalize-ctl.sh [status|on|off|append|replace|style [name]|language [name]|model [name]|last|file <path>|cycle|reset]
 #   status        (default) print the dashboard: every setting, its value, and
-#                 WHERE that value comes from (env / a /claudish flag / default)
+#                 WHERE that value comes from (env / a /naturalize flag / default)
 #   on            resume rewrites (keeps the current mode)
 #   off           pause rewrites (originals only; also pauses the Markdown hook)
 #   append        original + rewrite appended (and turn on)
@@ -24,16 +24,16 @@
 #   style X       rewrite style: "tldr" (short summary), "5y" (explain like
 #                 I'm five), or "caveman" (blunt caveman speak); no name /
 #                 "default" resets to the plain rewrite.
-#                 A custom CLAUDISH_PROMPT_FILE always wins over styles
+#                 A custom NATURALIZE_PROMPT_FILE always wins over styles
 #   language X    rewrite into language X, e.g. "language Brazilian Portuguese"
 #                 (no name / "default" resets to the session/settings language)
 #   model X       use model X for whatever provider is configured (no name /
 #                 "default" resets to the provider default; also turns on)
 #   last          print the ORIGINAL text of the last assistant message
 #   file PATH     rewrite the file at PATH into NAME.plain.md beside it, via
-#                 claudish-md.sh, and print one line naming what was written.
+#                 naturalize-md.sh, and print one line naming what was written.
 #                 PATH may be a public http(s) URL; the rewrite then lands in
-#                 the session's cwd, named after the URL (see claudish-md.sh).
+#                 the session's cwd, named after the URL (see naturalize-md.sh).
 #                 Read-only as far as settings go — it writes no flag file,
 #                 and it runs even while rewrites are paused, because pausing
 #                 stops the automatic hooks, not a rewrite asked for by name.
@@ -44,23 +44,23 @@
 #   reset         clear ALL overrides (off/mode/style/language/model) -> env
 #
 # Mutating commands print a one-line confirmation:
-#   "claudish: <off|append|replace> (style: …, language: …, model: …)".
+#   "naturalize: <off|append|replace> (style: …, language: …, model: …)".
 # Writes fail loudly (exit 1) if a flag file cannot be created/removed.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-OFF_FILE="${CLAUDISH_OFF_FILE:-$HOME/.claude/claudish-off}"
-MODE_FILE="${CLAUDISH_MODE_FILE:-$HOME/.claude/claudish-mode}"
-STYLE_FILE="${CLAUDISH_STYLE_FILE:-$HOME/.claude/claudish-style}"
-LANG_FILE="${CLAUDISH_LANG_FILE:-$HOME/.claude/claudish-lang}"
-MODEL_FILE="${CLAUDISH_MODEL_FILE:-$HOME/.claude/claudish-model}"
+OFF_FILE="${NATURALIZE_OFF_FILE:-$HOME/.claude/naturalize-off}"
+MODE_FILE="${NATURALIZE_MODE_FILE:-$HOME/.claude/naturalize-mode}"
+STYLE_FILE="${NATURALIZE_STYLE_FILE:-$HOME/.claude/naturalize-style}"
+LANG_FILE="${NATURALIZE_LANG_FILE:-$HOME/.claude/naturalize-lang}"
+MODEL_FILE="${NATURALIZE_MODEL_FILE:-$HOME/.claude/naturalize-model}"
 
-# The /claudish slash command hands the user's whole argument string to us as a
-# QUOTED here-doc on stdin (invoked as `claudish-ctl.sh --stdin-args`). A quoted
+# The /naturalize slash command hands the user's whole argument string to us as a
+# QUOTED here-doc on stdin (invoked as `naturalize-ctl.sh --stdin-args`). A quoted
 # here-doc delimiter makes the shell copy the body verbatim, so NOTHING typed
-# after /claudish is re-parsed as shell syntax: command substitution ($(...),
+# after /naturalize is re-parsed as shell syntax: command substitution ($(...),
 # backticks), parameter expansion ($VAR), quotes, and operators (; | && *) all
 # arrive as literal text and are never evaluated. Quoting "$ARGUMENTS" into the
 # command line could not do this — Claude Code substitutes $ARGUMENTS textually
@@ -69,7 +69,7 @@ MODEL_FILE="${CLAUDISH_MODEL_FILE:-$HOME/.claude/claudish-model}"
 # a literal "*" is not expanded, to keep multi-word args like
 # `language Brazilian Portuguese` working. A direct call from a terminal passes
 # normal positional args (no --stdin-args) and is left untouched; an empty
-# here-doc yields zero positionals, so bare `/claudish` falls through to status.
+# here-doc yields zero positionals, so bare `/naturalize` falls through to status.
 if [ "${1:-}" = "--stdin-args" ]; then
   _argline=""
   IFS= read -r _argline || true
@@ -79,7 +79,7 @@ if [ "${1:-}" = "--stdin-args" ]; then
   set +f
 fi
 
-fail() { printf 'claudish-ctl: %s\n' "$1" >&2; exit 1; }
+fail() { printf 'naturalize-ctl: %s\n' "$1" >&2; exit 1; }
 
 # Borrow the hooks' own resolvers so the dashboard can't drift from them:
 # providers.sh sets PROVIDER + the provider-default MODEL, lang.sh resolves the
@@ -88,12 +88,12 @@ fail() { printf 'claudish-ctl: %s\n' "$1" >&2; exit 1; }
 # PROVIDER default — otherwise a `model default` that removes the file this same
 # run would read the file's value back through $MODEL. current_model reads the
 # real file itself, fresh. Both sources are fail-soft.
-_saved_mf="${CLAUDISH_MODEL_FILE:-}"
-export CLAUDISH_MODEL_FILE="$SELF_DIR/.claudish-no-model-file"
+_saved_mf="${NATURALIZE_MODEL_FILE:-}"
+export NATURALIZE_MODEL_FILE="$SELF_DIR/.claudish-no-model-file"
 MODEL=""; PROVIDER=""
 dbg() { :; }
 . "$SELF_DIR/providers.sh" 2>/dev/null || true
-if [ -n "$_saved_mf" ]; then export CLAUDISH_MODEL_FILE="$_saved_mf"; else unset CLAUDISH_MODEL_FILE; fi
+if [ -n "$_saved_mf" ]; then export NATURALIZE_MODEL_FILE="$_saved_mf"; else unset NATURALIZE_MODEL_FILE; fi
 claudish_language() { :; }
 . "$SELF_DIR/lang.sh" 2>/dev/null || true
 
@@ -102,7 +102,7 @@ current_model() {
   m=""
   [ -f "$MODEL_FILE" ] && m="$(head -c 128 "$MODEL_FILE" 2>/dev/null | tr -cd 'A-Za-z0-9:._/-' | head -c 64)"
   [ -n "$m" ] && { printf '%s' "$m"; return; }
-  printf '%s' "${MODEL:-${CLAUDISH_MODEL:-unknown}}"
+  printf '%s' "${MODEL:-${NATURALIZE_MODEL:-unknown}}"
 }
 current_lang() {
   l="$(claudish_language "$PWD" 2>/dev/null)"
@@ -111,13 +111,13 @@ current_lang() {
 current_mode() {
   m=""
   [ -f "$MODE_FILE" ] && m="$(cat "$MODE_FILE" 2>/dev/null | tr -d '[:space:]')"
-  case "$m" in append|replace) printf '%s' "$m" ;; *) printf '%s' "${CLAUDISH_MODE:-append}" ;; esac
+  case "$m" in append|replace) printf '%s' "$m" ;; *) printf '%s' "${NATURALIZE_MODE:-append}" ;; esac
 }
 current_style() {
   s=""
   [ -f "$STYLE_FILE" ] && s="$(cat "$STYLE_FILE" 2>/dev/null | tr -d '[:space:]')"
   case "$s" in tldr|5y|caveman) printf '%s' "$s"; return ;; esac
-  case "${CLAUDISH_STYLE:-}" in tldr|5y|caveman) printf '%s' "$CLAUDISH_STYLE" ;; *) printf 'default' ;; esac
+  case "${NATURALIZE_STYLE:-}" in tldr|5y|caveman) printf '%s' "$NATURALIZE_STYLE" ;; *) printf 'default' ;; esac
 }
 state() { [ -f "$OFF_FILE" ] && printf 'off' || current_mode; }
 
@@ -125,35 +125,35 @@ turn_on() { rm -f "$OFF_FILE" 2>/dev/null || fail "cannot remove $OFF_FILE"; }
 set_mode() { { printf '%s\n' "$1" > "$MODE_FILE"; } 2>/dev/null || fail "cannot write $MODE_FILE"; turn_on; }
 
 # ---- provenance: where does each effective value come from? ---------------
-# "flag" is the one worth flagging — a /claudish file that persists across
+# "flag" is the one worth flagging — a /naturalize file that persists across
 # sessions. The dashboard turns these into a ⚠ line.
 mode_source() {
   if [ -f "$MODE_FILE" ]; then
     case "$(cat "$MODE_FILE" 2>/dev/null | tr -d '[:space:]')" in append|replace) echo flag; return ;; esac
   fi
-  [ -n "${CLAUDISH_MODE+x}" ] && { echo env; return; }
+  [ -n "${NATURALIZE_MODE+x}" ] && { echo env; return; }
   echo default
 }
 style_source() {
   if [ -f "$STYLE_FILE" ]; then
     case "$(cat "$STYLE_FILE" 2>/dev/null | tr -d '[:space:]')" in tldr|5y|caveman) echo flag; return ;; esac
   fi
-  case "${CLAUDISH_STYLE:-}" in tldr|5y|caveman) echo env; return ;; esac
+  case "${NATURALIZE_STYLE:-}" in tldr|5y|caveman) echo env; return ;; esac
   echo default
 }
 lang_source() {
   [ -f "$LANG_FILE" ] && [ -n "$(head -c 64 "$LANG_FILE" 2>/dev/null | tr -d '[:space:]')" ] && { echo flag; return; }
-  [ -n "${CLAUDISH_LANG+x}" ] && { echo env; return; }
+  [ -n "${NATURALIZE_LANG+x}" ] && { echo env; return; }
   [ -n "$(claudish_language "$PWD" 2>/dev/null)" ] && { echo settings; return; }
   echo default
 }
 model_source() {
   [ -f "$MODEL_FILE" ] && [ -n "$(head -c 128 "$MODEL_FILE" 2>/dev/null | tr -d '[:space:]')" ] && { echo flag; return; }
-  [ -n "${CLAUDISH_MODEL+x}" ] && { echo env; return; }
+  [ -n "${NATURALIZE_MODEL+x}" ] && { echo env; return; }
   echo provider
 }
 
-WARN=0  # set when any value is a persisting /claudish override
+WARN=0  # set when any value is a persisting /naturalize override
 
 status_label() {
   case "$(state)" in
@@ -162,53 +162,53 @@ status_label() {
     *)       _mean="original + rewrite" ;;
   esac
   if [ -f "$OFF_FILE" ]; then
-    WARN=1; printf '⚠ /claudish off — %s; persists across sessions' "$_mean"; return
+    WARN=1; printf '⚠ /naturalize off — %s; persists across sessions' "$_mean"; return
   fi
   case "$(mode_source)" in
-    flag) WARN=1; printf '⚠ /claudish — %s; beats env, persists across sessions' "$_mean" ;;
-    env)  printf 'env CLAUDISH_MODE — %s' "$_mean" ;;
+    flag) WARN=1; printf '⚠ /naturalize — %s; beats env, persists across sessions' "$_mean" ;;
+    env)  printf 'env NATURALIZE_MODE — %s' "$_mean" ;;
     *)    printf 'default — %s' "$_mean" ;;
   esac
 }
 style_label() {
   case "$(style_source)" in
-    flag) WARN=1; printf '⚠ /claudish — beats env CLAUDISH_STYLE, persists across sessions' ;;
-    env)  printf 'env CLAUDISH_STYLE' ;;
+    flag) WARN=1; printf '⚠ /naturalize — beats env NATURALIZE_STYLE, persists across sessions' ;;
+    env)  printf 'env NATURALIZE_STYLE' ;;
     *)    printf 'default — plain-language rewrite' ;;
   esac
 }
 language_label() {
   case "$(lang_source)" in
-    flag)     WARN=1; printf '⚠ /claudish — beats env & settings, persists across sessions' ;;
-    env)      printf 'env CLAUDISH_LANG' ;;
+    flag)     WARN=1; printf '⚠ /naturalize — beats env & settings, persists across sessions' ;;
+    env)      printf 'env NATURALIZE_LANG' ;;
     settings) printf 'your .claude/settings.json language' ;;
     *)        printf 'default — keeps each message'\''s own language' ;;
   esac
 }
 model_label() {
   case "$(model_source)" in
-    flag)     WARN=1; printf '⚠ /claudish — beats env CLAUDISH_MODEL, persists across sessions' ;;
-    env)      printf 'env CLAUDISH_MODEL' ;;
+    flag)     WARN=1; printf '⚠ /naturalize — beats env NATURALIZE_MODEL, persists across sessions' ;;
+    env)      printf 'env NATURALIZE_MODEL' ;;
     *)        printf '%s provider default' "${PROVIDER:-ollama}" ;;
   esac
 }
-provider_label() { [ -n "${CLAUDISH_PROVIDER+x}" ] && printf 'env CLAUDISH_PROVIDER' || printf 'default'; }
+provider_label() { [ -n "${NATURALIZE_PROVIDER+x}" ] && printf 'env NATURALIZE_PROVIDER' || printf 'default'; }
 
 dashboard() {
   # Compute labels first (they set WARN as a side effect).
   _sl="$(status_label)"; _yl="$(style_label)"; _ll="$(language_label)"; _ml="$(model_label)"; _pl="$(provider_label)"
-  printf '\n  claudish · plain-language rewrite of each assistant message\n\n'
+  printf '\n  naturalize · plain-language rewrite of each assistant message\n\n'
   printf '  %-9s %-16s · %s\n' 'status'   "$(state)"            "$_sl"
   printf '  %-9s %-16s · %s\n' 'style'    "$(current_style)"    "$_yl"
   printf '  %-9s %-16s · %s\n' 'language' "$(current_lang)"     "$_ll"
   printf '  %-9s %-16s · %s\n' 'model'    "$(current_model)"    "$_ml"
   printf '  %-9s %-16s · %s\n' 'provider' "${PROVIDER:-ollama}" "$_pl"
-  printf '\n  change   /claudish on · off · append · replace · style <tldr|5y|caveman> · language <name> · model <name>\n'
-  printf '  other    /claudish last · cycle · reset (clear all overrides) · status\n'
-  printf '  files    /claudish file <path>  → NAME.plain.md · terminal: %s/claudish-md.sh --help\n' "$SELF_DIR"
+  printf '\n  change   /naturalize on · off · append · replace · style <tldr|5y|caveman> · language <name> · model <name>\n'
+  printf '  other    /naturalize last · cycle · reset (clear all overrides) · status\n'
+  printf '  files    /naturalize file <path>  → NAME.plain.md · terminal: %s/naturalize-md.sh --help\n' "$SELF_DIR"
   if [ "$WARN" = "1" ]; then
-    printf '\n  ⚠ lines above are /claudish overrides in ~/.claude/claudish-* that persist\n'
-    printf '    across sessions. Reset one with its `default` form, or all with /claudish reset.\n'
+    printf '\n  ⚠ lines above are /naturalize overrides in ~/.claude/naturalize-* that persist\n'
+    printf '    across sessions. Reset one with its `default` form, or all with /naturalize reset.\n'
   fi
   printf '\n'
 }
@@ -228,15 +228,15 @@ case "$cmd" in
     proj="$(printf '%s' "$PWD" | sed 's/[^A-Za-z0-9]/-/g')"
     tp="$(ls -t "$HOME/.claude/projects/$proj"/*.jsonl 2>/dev/null | head -n1)"
     [ -n "$tp" ] || tp="$(ls -t "$HOME/.claude/projects"/*/*.jsonl 2>/dev/null | head -n1)"
-    [ -n "$tp" ] || { printf 'claudish-ctl: no session transcript found\n' >&2; exit 1; }
+    [ -n "$tp" ] || { printf 'naturalize-ctl: no session transcript found\n' >&2; exit 1; }
     jq -rs '
       [ .[]
         | select(.type=="assistant" and .isSidechain!=true)
         | [.message.content[]? | select(.type=="text") | .text]
         | join("\n\n")
         | select(length>0) ]
-      | last // "claudish-ctl: no assistant message in the transcript yet"
-    ' "$tp" 2>/dev/null || { printf 'claudish-ctl: could not parse %s\n' "$tp" >&2; exit 1; }
+      | last // "naturalize-ctl: no assistant message in the transcript yet"
+    ' "$tp" 2>/dev/null || { printf 'naturalize-ctl: could not parse %s\n' "$tp" >&2; exit 1; }
     exit 0
     ;;
   file)
@@ -245,7 +245,7 @@ case "$cmd" in
     # surrounding quotes is stripped (people paste paths quoted), and a leading
     # ~/ expands. Relative paths resolve against the session's cwd, which is
     # where the slash command runs. The line was never shell-parsed (see the
-    # here-doc note above), and it only ever reaches claudish-md.sh as a single
+    # here-doc note above), and it only ever reaches naturalize-md.sh as a single
     # quoted argument after --, so it cannot become an option or a command.
     if [ -n "${_argline+x}" ]; then
       f="$(printf '%s' "$_argline" | sed -e 's/^[[:space:]]*file//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
@@ -257,35 +257,35 @@ case "$cmd" in
       \'*\') f="${f#\'}"; f="${f%\'}" ;;
     esac
     case "$f" in "~/"*) f="$HOME/${f#\~/}" ;; esac
-    [ -n "$f" ] || { printf 'claudish-ctl: usage: /claudish file <path or URL> — writes NAME.plain.md beside it (a URL: in the current directory) (terminal: %s/claudish-md.sh --help)\n' "$SELF_DIR" >&2; exit 2; }
+    [ -n "$f" ] || { printf 'naturalize-ctl: usage: /naturalize file <path or URL> — writes NAME.plain.md beside it (a URL: in the current directory) (terminal: %s/naturalize-md.sh --help)\n' "$SELF_DIR" >&2; exit 2; }
     # A slash command's !`…` block is killed at 2 minutes, which is not
-    # configurable — shorter than the 150s CLAUDISH_MD_TIMEOUT default. Cap the
+    # configurable — shorter than the 150s NATURALIZE_MD_TIMEOUT default. Cap the
     # LLM call below it so a slow rewrite fails with a reason, not a kill.
     # For a URL the download shares that budget: 20s to fetch, 90s to rewrite.
-    _cap=110; _fdt="${CLAUDISH_MD_FETCH_TIMEOUT:-30}"
+    _cap=110; _fdt="${NATURALIZE_MD_FETCH_TIMEOUT:-30}"
     case "$_fdt" in ''|*[!0-9]*) _fdt=30 ;; esac
     case "$f" in
       [Hh][Tt][Tt][Pp]://*|[Hh][Tt][Tt][Pp][Ss]://*) _cap=90; [ "$_fdt" -gt 20 ] && _fdt=20 ;;
     esac
-    _mdt="${CLAUDISH_MD_TIMEOUT:-150}"
+    _mdt="${NATURALIZE_MD_TIMEOUT:-150}"
     case "$_mdt" in ''|*[!0-9]*) _mdt=150 ;; esac
     [ "$_mdt" -gt "$_cap" ] && _mdt="$_cap"
-    # stderr carries claudish-md's reason on failure and its notes on success;
+    # stderr carries naturalize-md's reason on failure and its notes on success;
     # keep it apart from stdout, which is only ever the path written.
-    _errf="$(mktemp "${TMPDIR:-/tmp}/claudish-ctl-err.XXXXXX" 2>/dev/null)" || fail "cannot create a temp file"
+    _errf="$(mktemp "${TMPDIR:-/tmp}/naturalize-ctl-err.XXXXXX" 2>/dev/null)" || fail "cannot create a temp file"
     trap 'rm -f "$_errf" 2>/dev/null' EXIT
-    written="$(CLAUDISH_MD_TIMEOUT="$_mdt" CLAUDISH_MD_FETCH_TIMEOUT="$_fdt" "$SELF_DIR/claudish-md.sh" --sibling -- "$f" 2>"$_errf")"; rc=$?
+    written="$(NATURALIZE_MD_TIMEOUT="$_mdt" NATURALIZE_MD_FETCH_TIMEOUT="$_fdt" "$SELF_DIR/naturalize-md.sh" --sibling -- "$f" 2>"$_errf")"; rc=$?
     notes="$(cat "$_errf" 2>/dev/null)"; rm -f "$_errf" 2>/dev/null
     if [ "$rc" != "0" ] || [ -z "$written" ]; then
-      printf '%s\n' "${notes:-claudish-md: failed (exit $rc)}" >&2
+      printf '%s\n' "${notes:-naturalize-md: failed (exit $rc)}" >&2
       # Both the download and the rewrite are capped here, so either timeout
       # gets the same pointer to the terminal, where neither cap applies.
       case "$notes" in *"timed out"*)
-        printf 'claudish-ctl: /claudish file must finish inside the 2-minute limit Claude Code puts on slash commands. Run it from a terminal instead, where the timeouts can go higher: CLAUDISH_MD_TIMEOUT=600 %s/claudish-md.sh --sibling <path or URL>\n' "$SELF_DIR" >&2 ;;
+        printf 'naturalize-ctl: /naturalize file must finish inside the 2-minute limit Claude Code puts on slash commands. Run it from a terminal instead, where the timeouts can go higher: NATURALIZE_MD_TIMEOUT=600 %s/naturalize-md.sh --sibling <path or URL>\n' "$SELF_DIR" >&2 ;;
       esac
       exit 1
     fi
-    printf 'claudish: wrote %s (plain-language rewrite of %s; language: %s, model: %s)\n' \
+    printf 'naturalize: wrote %s (plain-language rewrite of %s; language: %s, model: %s)\n' \
       "$written" "$f" "$(current_lang)" "$(current_model)"
     [ -n "$notes" ] && printf '%s\n' "$notes"
     exit 0
@@ -303,7 +303,7 @@ case "$cmd" in
     case "$s" in
       ''|default|Default) rm -f "$STYLE_FILE" 2>/dev/null || fail "cannot remove $STYLE_FILE" ;;
       tldr|5y|caveman)    { printf '%s\n' "$s" > "$STYLE_FILE"; } 2>/dev/null || fail "cannot write $STYLE_FILE" ;;
-      *) printf 'claudish-ctl: unknown style "%s" (use tldr|5y|caveman|default)\n' "$s" >&2; exit 2 ;;
+      *) printf 'naturalize-ctl: unknown style "%s" (use tldr|5y|caveman|default)\n' "$s" >&2; exit 2 ;;
     esac
     turn_on
     ;;
@@ -338,9 +338,9 @@ case "$cmd" in
     esac
     ;;
   *)
-    printf 'claudish-ctl: unknown command "%s" (use status|on|off|append|replace|style [name]|language [name]|model [name]|last|file <path>|cycle|reset)\n' "$cmd" >&2
+    printf 'naturalize-ctl: unknown command "%s" (use status|on|off|append|replace|style [name]|language [name]|model [name]|last|file <path>|cycle|reset)\n' "$cmd" >&2
     exit 2
     ;;
 esac
 
-printf 'claudish: %s (style: %s, language: %s, model: %s)\n' "$(state)" "$(current_style)" "$(current_lang)" "$(current_model)"
+printf 'naturalize: %s (style: %s, language: %s, model: %s)\n' "$(state)" "$(current_style)" "$(current_lang)" "$(current_model)"

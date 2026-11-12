@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# claudish-md.sh — rewrite a Markdown file, or any text, into plain language
-# ON DEMAND. Backs `/claudish file <path>`; also runs straight from a terminal.
+# naturalize-md.sh — rewrite a Markdown file, or any text, into plain language
+# ON DEMAND. Backs `/naturalize file <path>`; also runs straight from a terminal.
 #
-#   claudish-md.sh notes.md                 rewrite -> stdout
-#   pbpaste | claudish-md.sh                stdin (any text) -> stdout
-#   claudish-md.sh notes.md -o simple.md    rewrite -> simple.md
-#   claudish-md.sh notes.md --sibling       rewrite -> notes.plain.md
-#   claudish-md.sh -l English notes.md      rewrite into English
-#   claudish-md.sh https://…/doc.md         fetch a URL, rewrite -> stdout
+#   naturalize-md.sh notes.md                 rewrite -> stdout
+#   pbpaste | naturalize-md.sh                stdin (any text) -> stdout
+#   naturalize-md.sh notes.md -o simple.md    rewrite -> simple.md
+#   naturalize-md.sh notes.md --sibling       rewrite -> notes.plain.md
+#   naturalize-md.sh -l English notes.md      rewrite into English
+#   naturalize-md.sh https://…/doc.md         fetch a URL, rewrite -> stdout
 #
 # Same rewrite as the PostToolUse hook (rewrite-md.sh): the frontmatter split,
 # prose measure, and system prompt all come from md-core.sh, and the provider,
-# model, and language come from providers.sh / lang.sh, so every CLAUDISH_*
-# setting and /claudish flag file applies here too. What differs is deliberate,
+# model, and language come from providers.sh / lang.sh, so every NATURALIZE_*
+# setting and /naturalize flag file applies here too. What differs is deliberate,
 # because a person asked for THIS rewrite:
-#   - no CLAUDISH_MD_DIR gate, no .md-extension gate, no CLAUDISH_MIN_CHARS
+#   - no NATURALIZE_MD_DIR gate, no .md-extension gate, no NATURALIZE_MIN_CHARS
 #     gate, no overwrite-marker skip (a leading marker line is dropped instead,
 #     so the model never sees it)
-#   - CLAUDISH_ENABLED and the off-file are NOT honoured: they pause the
+#   - NATURALIZE_ENABLED and the off-file are NOT honoured: they pause the
 #     automatic hooks, not a command you just typed
 #   - it FAILS LOUDLY. This is not a hook, so there is no assistant message to
-#     leave on screen: any problem prints `claudish-md: <reason>` on stderr and
+#     leave on screen: any problem prints `naturalize-md: <reason>` on stderr and
 #     exits non-zero. It still never writes or prints a partial or empty
 #     rewrite — a file target is written atomically, and only on success.
 #
 # Options:
 #   -o, --output PATH   write the rewrite to PATH instead of stdout
 #   -s, --sibling       write NAME.<suffix>.md next to NAME.md (suffix from
-#                       CLAUDISH_MD_SUFFIX, default "plain"; a file without a
+#                       NATURALIZE_MD_SUFFIX, default "plain"; a file without a
 #                       .md extension gets <suffix>.md appended)
 #   -l, --lang NAME     rewrite into NAME, beating every other language source
 #                       for this run; an EMPTY NAME keeps the input's language.
@@ -49,7 +49,7 @@
 # Any other URL is fetched as given, query string included. Only http and https
 # are allowed, on the first request and on every redirect. A response that is
 # HTML (by Content-Type, or by sniffing a leading <!DOCTYPE html>/<html>) is
-# refused rather than rewritten, and so is one over CLAUDISH_MD_MAX_BYTES.
+# refused rather than rewritten, and so is one over NATURALIZE_MD_MAX_BYTES.
 # --sibling names the output after the URL's last path segment and writes it
 # in the CURRENT directory (…/docs/setup.md -> ./setup.plain.md), since there
 # is no directory beside a URL.
@@ -58,17 +58,17 @@
 # stdout; notes (the oauth caution) go to stderr. Exit codes: 0 done, 1 the
 # rewrite failed (the reason says why), 2 usage error.
 #
-# Relevant config: CLAUDISH_PROVIDER / CLAUDISH_MODEL and the provider keys
-# (providers.sh), CLAUDISH_LANG (lang.sh), CLAUDISH_MD_PROMPT_FILE,
-# CLAUDISH_MD_SUFFIX, CLAUDISH_MD_TIMEOUT (LLM timeout, default 150s),
-# CLAUDISH_MD_FETCH_TIMEOUT (URL download timeout, default 30s),
-# CLAUDISH_MD_MAX_BYTES (URL download cap, default 1048576),
-# CLAUDISH_STUB, CLAUDISH_DEBUG (logs to debug-md.log, like the hook).
+# Relevant config: NATURALIZE_PROVIDER / NATURALIZE_MODEL and the provider keys
+# (providers.sh), NATURALIZE_LANG (lang.sh), NATURALIZE_MD_PROMPT_FILE,
+# NATURALIZE_MD_SUFFIX, NATURALIZE_MD_TIMEOUT (LLM timeout, default 150s),
+# NATURALIZE_MD_FETCH_TIMEOUT (URL download timeout, default 30s),
+# NATURALIZE_MD_MAX_BYTES (URL download cap, default 1048576),
+# NATURALIZE_STUB, NATURALIZE_DEBUG (logs to debug-md.log, like the hook).
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROG="claudish-md"
+PROG="naturalize-md"
 
 die() { printf '%s: %s\n' "$PROG" "$1" >&2; exit "${2:-1}"; }
 
@@ -78,15 +78,15 @@ usage: $PROG [-o PATH | -s] [-l LANGUAGE] [FILE | URL | -]
 
 Rewrite a Markdown file, a file:// or public http(s) URL, or any text on stdin
 into plain language, using the
-same provider, model, language, and prompt as the claudish-to-english hooks.
+same provider, model, language, and prompt as the naturalize hooks.
 
   -o, --output PATH   write to PATH instead of stdout
-  -s, --sibling       write NAME.${CLAUDISH_MD_SUFFIX:-plain}.md next to the input file
+  -s, --sibling       write NAME.${NATURALIZE_MD_SUFFIX:-plain}.md next to the input file
                       (for a URL: in the current directory, named after the URL)
   -l, --lang NAME     rewrite into NAME (e.g. English); empty keeps the input's language
   -h, --help          show this help
 
-This script: $SELF_DIR/claudish-md.sh
+This script: $SELF_DIR/naturalize-md.sh
 EOF
 }
 
@@ -114,9 +114,9 @@ src="${args[0]:--}"
 [ "$src" = "-" ] && [ -t 0 ] && { usage >&2; exit 2; }
 
 # ---- shared layers (all required: a missing one is a broken install) -------
-LLM_TIMEOUT="${CLAUDISH_MD_TIMEOUT:-150}"
-DEBUG="${CLAUDISH_DEBUG:-0}"
-LOG_ROOT="${TMPDIR:-/tmp}/claudish-to-english"
+LLM_TIMEOUT="${NATURALIZE_MD_TIMEOUT:-150}"
+DEBUG="${NATURALIZE_DEBUG:-0}"
+LOG_ROOT="${TMPDIR:-/tmp}/naturalize"
 mkdir -p "$LOG_ROOT" 2>/dev/null || true
 dbg() { [ "$DEBUG" = "1" ] && printf '%s [%s] cli: %s\n' "$(date '+%H:%M:%S')" "$$" "$*" >> "$LOG_ROOT/debug-md.log" 2>/dev/null; return 0; }
 
@@ -190,11 +190,11 @@ raw_url() {
 # the text; the file is removed before this returns. (providers.sh installs its
 # own EXIT trap later, so nothing may rely on a trap set here beyond the fetch.)
 fetch_url() {
-  _max="${CLAUDISH_MD_MAX_BYTES:-1048576}"
+  _max="${NATURALIZE_MD_MAX_BYTES:-1048576}"
   case "$_max" in ''|*[!0-9]*) _max=1048576 ;; esac
-  _ft="${CLAUDISH_MD_FETCH_TIMEOUT:-30}"
+  _ft="${NATURALIZE_MD_FETCH_TIMEOUT:-30}"
   case "$_ft" in ''|*[!0-9]*) _ft=30 ;; esac
-  _bodyf="$(mktemp "${TMPDIR:-/tmp}/claudish-fetch.XXXXXX" 2>/dev/null)" || die "cannot create a temp file"
+  _bodyf="$(mktemp "${TMPDIR:-/tmp}/naturalize-fetch.XXXXXX" 2>/dev/null)" || die "cannot create a temp file"
   trap 'rm -f "$_bodyf" 2>/dev/null' EXIT
   [ -t 2 ] && printf '%s: fetching %s…\n' "$PROG" "$1" >&2
   _meta="$(curl -sSL --fail --proto '=http,https' --proto-redir '=http,https' \
@@ -214,8 +214,8 @@ fetch_url() {
       [45]??)  die "HTTP $_code fetching $1" ;;
     esac
     case "$_rc" in
-      28) die "timed out after ${_ft}s fetching $1 — raise CLAUDISH_MD_FETCH_TIMEOUT" ;;
-      63) die "$1 is larger than CLAUDISH_MD_MAX_BYTES ($_max bytes)" ;;
+      28) die "timed out after ${_ft}s fetching $1 — raise NATURALIZE_MD_FETCH_TIMEOUT" ;;
+      63) die "$1 is larger than NATURALIZE_MD_MAX_BYTES ($_max bytes)" ;;
       6)  die "cannot resolve the host in $1" ;;
       1)  die "redirected to a URL that is not http(s): $1" ;;
       *)  die "could not fetch $1 (curl exit $_rc)" ;;
@@ -224,7 +224,7 @@ fetch_url() {
   # --max-filesize only works when the server announces a length; a chunked
   # response is checked here instead, after the fact.
   _size="$(wc -c < "$_bodyf" | tr -d ' ')"
-  [ "${_size:-0}" -le "$_max" ] || { rm -f "$_bodyf"; die "$1 is larger than CLAUDISH_MD_MAX_BYTES ($_max bytes)"; }
+  [ "${_size:-0}" -le "$_max" ] || { rm -f "$_bodyf"; die "$1 is larger than NATURALIZE_MD_MAX_BYTES ($_max bytes)"; }
   content="$(cat "$_bodyf")"
   rm -f "$_bodyf" 2>/dev/null; trap - EXIT
   case "$(printf '%s' "$_ctype" | tr 'A-Z' 'a-z')" in
@@ -279,13 +279,13 @@ if [ "$sibling" = "1" ] && [ "$is_url" = "1" ]; then
   _seg="$(printf '%s' "$_seg" | tr -cd 'A-Za-z0-9._-' | head -c 100)"
   case "$_seg" in ''|.*) _seg="document" ;; esac
   case "$_seg" in
-    *.md) target="$PWD/${_seg%.md}.${CLAUDISH_MD_SUFFIX:-plain}.md" ;;
-    *)    target="$PWD/$_seg.${CLAUDISH_MD_SUFFIX:-plain}.md" ;;
+    *.md) target="$PWD/${_seg%.md}.${NATURALIZE_MD_SUFFIX:-plain}.md" ;;
+    *)    target="$PWD/$_seg.${NATURALIZE_MD_SUFFIX:-plain}.md" ;;
   esac
 elif [ "$sibling" = "1" ]; then
   case "$src" in
-    *.md) target="${src%.md}.${CLAUDISH_MD_SUFFIX:-plain}.md" ;;
-    *)    target="$src.${CLAUDISH_MD_SUFFIX:-plain}.md" ;;
+    *.md) target="${src%.md}.${NATURALIZE_MD_SUFFIX:-plain}.md" ;;
+    *)    target="$src.${NATURALIZE_MD_SUFFIX:-plain}.md" ;;
   esac
 elif [ -n "$out" ]; then
   target="$out"
@@ -300,7 +300,7 @@ fi
 
 # ---- output language: -l beats every other source for this run -------------
 # Through _claudish_lang_clean like every other source: the value reaches the
-# system prompt, and /claudish file hands us text typed into a session.
+# system prompt, and /naturalize file hands us text typed into a session.
 if [ "$lang_set" = "1" ]; then
   OUT_LANG="$(_claudish_lang_clean "$lang_opt")"
 else
@@ -310,7 +310,7 @@ dbg "language=${OUT_LANG:-same as the input (default)}"
 
 # ---- rewrite ---------------------------------------------------------------
 rewrite=""
-if [ "${CLAUDISH_STUB:-0}" = "1" ]; then
+if [ "${NATURALIZE_STUB:-0}" = "1" ]; then
   rewrite="STUB-SIMPLIFIED-MD ✦ manual prose_len=$prose_len lang=${OUT_LANG:-same} ✦"$'\n\n'"$body"
 else
   [ -t 2 ] && printf '%s: rewriting %s with %s%s…\n' "$PROG" "$src_label" "$PROVIDER" "${MODEL:+ ($MODEL)}" >&2
@@ -319,7 +319,7 @@ else
 fi
 
 if [ -z "$rewrite" ]; then
-  TIMEOUT_HINT="raise CLAUDISH_MD_TIMEOUT, or set CLAUDISH_MODEL to a smaller model"
+  TIMEOUT_HINT="raise NATURALIZE_MD_TIMEOUT, or set NATURALIZE_MODEL to a smaller model"
   llm_notice_why
   die "${NOTICE_WHY:-the model returned an empty rewrite} — nothing written"
 fi

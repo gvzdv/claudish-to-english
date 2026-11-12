@@ -3,24 +3,24 @@
 # PostToolUse Markdown rewrite hook  (opt-in by directory, fail-open)
 #
 # Fires after a Write/Edit and, IF the written file is a Markdown file that
-# lives under CLAUDISH_MD_DIR, rewrites its prose into plain English using a
+# lives under NATURALIZE_MD_DIR, rewrites its prose into plain English using a
 # local LLM (ollama). PostToolUse.updatedToolOutput only changes what Claude
 # SEES, not the bytes on disk, so this hook does the file write itself.
 #
-# OPT-IN: does nothing unless CLAUDISH_MD_DIR is set. Only *.md files whose
+# OPT-IN: does nothing unless NATURALIZE_MD_DIR is set. Only *.md files whose
 # resolved path is inside that directory are touched. Everything else passes
 # straight through — the extension + directory checks here are authoritative,
 # so registration needs no path glob (avoids unverified glob-depth semantics).
 #
-# TWO MODES (CLAUDISH_MD_MODE):
+# TWO MODES (NATURALIZE_MD_MODE):
 #   sibling  (default)  write NAME.plain.md next to NAME.md; original untouched
 #   overwrite           replace NAME.md in place (adds an idempotency marker)
 #
 # The writes here go through the shell, NOT Claude's Write tool, so they do
 # NOT re-trigger PostToolUse — no loop.
 #
-# To rewrite a file ON DEMAND (any path, no CLAUDISH_MD_DIR, output to stdout
-# or a file), use claudish-md.sh or `/claudish file <path>`. Both share this
+# To rewrite a file ON DEMAND (any path, no NATURALIZE_MD_DIR, output to stdout
+# or a file), use naturalize-md.sh or `/naturalize file <path>`. Both share this
 # hook's frontmatter handling and prompt through md-core.sh.
 #
 # FAIL-OPEN CONTRACT: on ANY problem (disabled, no jq/curl, not under the dir,
@@ -29,18 +29,18 @@
 # or empty rewrite over real content.
 #
 # Config (env, with safe defaults):
-#   CLAUDISH_ENABLED   1|0            master switch shared with the display hook (default 1)
-#   CLAUDISH_OFF_FILE  <path>         flag file checked per message; when it exists,
-#                                     rewrites pause (default ~/.claude/claudish-off).
+#   NATURALIZE_ENABLED   1|0            master switch shared with the display hook (default 1)
+#   NATURALIZE_OFF_FILE  <path>         flag file checked per message; when it exists,
+#                                     rewrites pause (default ~/.claude/naturalize-off).
 #                                     Lets a hotkey/script toggle mid-session.
-#   CLAUDISH_MD_DIR    <path>         REQUIRED opt-in. Only .md under here is rewritten.
+#   NATURALIZE_MD_DIR    <path>         REQUIRED opt-in. Only .md under here is rewritten.
 #                                     Relative paths resolve against the tool's cwd.
-#   CLAUDISH_MD_MODE   sibling|overwrite   (default sibling)
-#   CLAUDISH_MD_SUFFIX <word>         sibling infix: NAME.<word>.md (default "plain")
-#   CLAUDISH_MD_PROMPT_FILE <path>    file holding a replacement Markdown prompt
+#   NATURALIZE_MD_MODE   sibling|overwrite   (default sibling)
+#   NATURALIZE_MD_SUFFIX <word>         sibling infix: NAME.<word>.md (default "plain")
+#   NATURALIZE_MD_PROMPT_FILE <path>    file holding a replacement Markdown prompt
 #                                     (whole prompt, not merged; empty or
 #                                     unreadable -> built-in default)
-#   CLAUDISH_LANG      <language>     language to rewrite into, e.g. "Esperanto".
+#   NATURALIZE_LANG      <language>     language to rewrite into, e.g. "Esperanto".
 #                                     Unset falls back to the session's `language`
 #                                     setting from .claude/settings*.json (the same
 #                                     key Claude Code answers in); with neither set,
@@ -48,39 +48,39 @@
 #                                     rewrites. Set it EMPTY to ignore the settings
 #                                     key, or to "English" to force English.
 #                                     See lang.sh
-#   CLAUDISH_PROVIDER  ollama|codex|agy|anthropic|openai  which LLM serves rewrites (default
+#   NATURALIZE_PROVIDER  ollama|codex|agy|anthropic|openai  which LLM serves rewrites (default
 #                                     ollama; keys, base URLs, and per-provider model
 #                                     defaults are documented in providers.sh)
-#   CLAUDISH_MODEL     <model>        overrides the provider's default model
-#   CLAUDISH_OLLAMA    <base url>     (default http://localhost:11434)
-#   CLAUDISH_MIN_CHARS <n>            skip files whose prose (code stripped) is shorter than this many CHARACTERS (default 200)
-#   CLAUDISH_STUB      1|0            deterministic stub instead of the LLM (mechanics testing)
-#   CLAUDISH_MD_TIMEOUT <seconds>     LLM client timeout for file rewrites (default 150).
+#   NATURALIZE_MODEL     <model>        overrides the provider's default model
+#   NATURALIZE_OLLAMA    <base url>     (default http://localhost:11434)
+#   NATURALIZE_MIN_CHARS <n>            skip files whose prose (code stripped) is shorter than this many CHARACTERS (default 200)
+#   NATURALIZE_STUB      1|0            deterministic stub instead of the LLM (mechanics testing)
+#   NATURALIZE_MD_TIMEOUT <seconds>     LLM client timeout for file rewrites (default 150).
 #                                     Large models rewriting long docs are slow; this is
 #                                     higher than the display hook's timeout on purpose and
 #                                     must stay below the PostToolUse hook timeout in hooks.json.
-#   CLAUDISH_DEBUG     1|0            append a debug log (default 0)
-#   CLAUDISH_NOTICE    1|0            once-per-session systemMessage when a rewrite is
+#   NATURALIZE_DEBUG     1|0            append a debug log (default 0)
+#   NATURALIZE_NOTICE    1|0            once-per-session systemMessage when a rewrite is
 #                                     skipped because the provider is unreachable, times
 #                                     out, is missing a key or model (default 1)
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
-ENABLED="${CLAUDISH_ENABLED:-1}"
+ENABLED="${NATURALIZE_ENABLED:-1}"
 # Runtime kill switch: env is frozen at session launch, so a hotkey or script
-# can't flip CLAUDISH_ENABLED mid-session. A flag file can be checked fresh on
+# can't flip NATURALIZE_ENABLED mid-session. A flag file can be checked fresh on
 # every invocation. Create it to pause rewrites instantly; remove it to resume.
-[ -f "${CLAUDISH_OFF_FILE:-$HOME/.claude/claudish-off}" ] && ENABLED=0
-MD_DIR="${CLAUDISH_MD_DIR:-}"
-MD_MODE="${CLAUDISH_MD_MODE:-sibling}"
-MD_SUFFIX="${CLAUDISH_MD_SUFFIX:-plain}"
-MIN_CHARS="${CLAUDISH_MIN_CHARS:-200}"
-STUB="${CLAUDISH_STUB:-0}"
-LLM_TIMEOUT="${CLAUDISH_MD_TIMEOUT:-150}"
-DEBUG="${CLAUDISH_DEBUG:-0}"
-NOTICE="${CLAUDISH_NOTICE:-1}"
+[ -f "${NATURALIZE_OFF_FILE:-$HOME/.claude/naturalize-off}" ] && ENABLED=0
+MD_DIR="${NATURALIZE_MD_DIR:-}"
+MD_MODE="${NATURALIZE_MD_MODE:-sibling}"
+MD_SUFFIX="${NATURALIZE_MD_SUFFIX:-plain}"
+MIN_CHARS="${NATURALIZE_MIN_CHARS:-200}"
+STUB="${NATURALIZE_STUB:-0}"
+LLM_TIMEOUT="${NATURALIZE_MD_TIMEOUT:-150}"
+DEBUG="${NATURALIZE_DEBUG:-0}"
+NOTICE="${NATURALIZE_NOTICE:-1}"
 
-LOG_ROOT="${TMPDIR:-/tmp}/claudish-to-english"
+LOG_ROOT="${TMPDIR:-/tmp}/naturalize"
 mkdir -p "$LOG_ROOT" 2>/dev/null || true
 
 dbg() { [ "$DEBUG" = "1" ] && printf '%s [%s] %s\n' "$(date '+%H:%M:%S')" "$$" "$*" >> "$LOG_ROOT/debug-md.log" 2>/dev/null; return 0; }
@@ -95,7 +95,7 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SELF_DIR/providers.sh" 2>/dev/null || pass_through "no providers.sh"
 
 # Markdown core (md-core.sh): frontmatter split, prose measure, system prompt,
-# marker — shared with the claudish-md.sh CLI so both rewrite a file the same
+# marker — shared with the naturalize-md.sh CLI so both rewrite a file the same
 # way. Missing file -> fail open.
 . "$SELF_DIR/md-core.sh" 2>/dev/null || pass_through "no md-core.sh"
 MARKER="$MD_MARKER"
@@ -117,7 +117,7 @@ canon() (
 )
 
 [ "$ENABLED" = "1" ]        || pass_through "disabled"
-[ -n "$MD_DIR" ]            || pass_through "no CLAUDISH_MD_DIR (feature off)"
+[ -n "$MD_DIR" ]            || pass_through "no NATURALIZE_MD_DIR (feature off)"
 command -v jq   >/dev/null 2>&1 || pass_through "no jq"
 command -v curl >/dev/null 2>&1 || pass_through "no curl"
 
@@ -137,13 +137,13 @@ case "$file" in
   *)               pass_through "not markdown" ;;
 esac
 
-# ---- directory gate: file must resolve inside CLAUDISH_MD_DIR -------------
+# ---- directory gate: file must resolve inside NATURALIZE_MD_DIR -------------
 file_abs="$(canon "$file")"
 dir_abs="$(canon "$MD_DIR")"
 [ -n "$file_abs" ] && [ -n "$dir_abs" ] || pass_through "could not resolve paths"
 case "$file_abs" in
   "$dir_abs"/*) ;;
-  *)            pass_through "outside CLAUDISH_MD_DIR ($file_abs not under $dir_abs)" ;;
+  *)            pass_through "outside NATURALIZE_MD_DIR ($file_abs not under $dir_abs)" ;;
 esac
 [ -f "$file_abs" ] || pass_through "file not on disk"
 
@@ -161,8 +161,8 @@ md_split "$content"
 
 # ---- idempotency: never re-chew a file we already rewrote (overwrite) -----
 # The marker is the first non-blank line of the BODY, after any frontmatter.
-# v0.1.1 and earlier wrote it on line 1 of the file, ahead of the frontmatter;
-# that layout is still recognised so those files are not rewritten twice.
+# Also accept it as line 1 of the file: that is where it lands when the file
+# has no frontmatter.
 body_first="$(printf '%s\n' "$body" | sed -n '/[^[:space:]]/{p;q;}')"
 if [ "$first_line" = "$MARKER" ] || [ "$body_first" = "$MARKER" ]; then
   pass_through "already rewritten (marker present)"
@@ -170,7 +170,7 @@ fi
 
 # ---- prose length gate (strip fenced code, count non-space characters) ----
 # Codepoints, not bytes — md_prose_len (md-core.sh) explains why. rewrite.sh
-# reads the same CLAUDISH_MIN_CHARS, so both hooks must measure it the same way.
+# reads the same NATURALIZE_MIN_CHARS, so both hooks must measure it the same way.
 prose_len="$(md_prose_len "$body")"
 dbg "prose_len=$prose_len min=$MIN_CHARS fm_lines=${fm_lines:-0}"
 [ "${prose_len:-0}" -ge "$MIN_CHARS" ] || pass_through "below min_chars"
@@ -190,7 +190,7 @@ if [ "$STUB" = "1" ]; then
   dbg "stub rewrite"
 else
   # Built-in prompt + language line, all replaceable via
-  # CLAUDISH_MD_PROMPT_FILE — see md_system_prompt in md-core.sh.
+  # NATURALIZE_MD_PROMPT_FILE — see md_system_prompt in md-core.sh.
   sys="$(md_system_prompt "$OUT_LANG")"
   llm_complete "$sys" "$body" || pass_through "req build failed"
 fi
@@ -203,13 +203,13 @@ fi
 if [ -z "$rewrite" ]; then
   notified="$LOG_ROOT/$SID.md-notified"
   if [ "$NOTICE" = "1" ] && [ ! -e "$notified" ]; then
-    TIMEOUT_HINT="raise CLAUDISH_MD_TIMEOUT (and the PostToolUse hook timeout in hooks.json), or set CLAUDISH_MODEL to a smaller model"
+    TIMEOUT_HINT="raise NATURALIZE_MD_TIMEOUT (and the PostToolUse hook timeout in hooks.json), or set NATURALIZE_MODEL to a smaller model"
     llm_notice_why
     why=""
     [ -n "$NOTICE_WHY" ] && why="$NOTICE_WHY — Markdown rewrite of $(basename "$file") skipped, file left unchanged."
     if [ -n "$why" ]; then
       : > "$notified" 2>/dev/null || true
-      jq -n --arg m "claudish-to-english: $why (shown once per session; set CLAUDISH_NOTICE=0 to silence)" \
+      jq -n --arg m "naturalize: $why (shown once per session; set NATURALIZE_NOTICE=0 to silence)" \
         '{systemMessage:$m}' 2>/dev/null
       dbg "emitted setup notice"
       exit 0
@@ -243,7 +243,7 @@ if [ "$NOTICE" = "1" ] && [ ! -e "$oauth_noted" ]; then
   _onote="$(llm_oauth_note 2>/dev/null)"
   if [ -n "$_onote" ]; then
     : > "$oauth_noted" 2>/dev/null || true
-    jq -n --arg m "claudish-to-english: $_onote. Shown once per session; set CLAUDISH_NOTICE=0 to silence." \
+    jq -n --arg m "naturalize: $_onote. Shown once per session; set NATURALIZE_NOTICE=0 to silence." \
       '{systemMessage:$m}' 2>/dev/null
   fi
 fi

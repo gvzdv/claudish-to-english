@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut a claudish-to-english release — pick the version, move the CHANGELOG's Unreleased section under it, bump plugin.json, open the release PR, then tag the merge commit and create the GitHub release. Use when asked to cut, ship, or publish a release, bump the version, or when changes are sitting under "## [Unreleased]" and need releasing.
+description: Cut a naturalize release — pick the version, move the CHANGELOG's Unreleased section under it, bump plugin.json, open the release PR, then tag the merge commit and create the GitHub release. Use when asked to cut, ship, or publish a release, bump the version, or when changes are sitting under "## [Unreleased]" and need releasing.
 ---
 
 # Cut a release
@@ -50,9 +50,9 @@ Only these two carry a version. `marketplace.json` does not pin one — leave it
    Get today's date with `date +%F`; do not guess it.
 2. Add a comparison link ref in the block at the bottom, directly above the
    previous version's line:
-   `[<version>]: https://github.com/gvzdv/claudish-to-english/compare/v<previous>...v<version>`
+   `[<version>]: https://github.com/ValerioL29/agentish-to-english/compare/v<previous>...v<version>`
 3. Repoint the Unreleased ref:
-   `[Unreleased]: https://github.com/gvzdv/claudish-to-english/compare/v<version>...HEAD`
+   `[Unreleased]: https://github.com/ValerioL29/agentish-to-english/compare/v<version>...HEAD`
 
 Leave the `[Unreleased]` *ref* in place but do **not** re-add an empty
 `## [Unreleased]` heading — this repo adds that heading only when there is
@@ -119,7 +119,7 @@ git switch main && git pull --ff-only
 git log --oneline -3
 ```
 
-Identify the **merge commit** (`Merge pull request #N from gvzdv/release/<version>`).
+Identify the **merge commit** (`Merge pull request #N from ValerioL29/release/<version>`).
 Tag that, *not* the `chore:` bump commit — tagging the bump leaves the release
 branch's commits dangling inside `compare/v<version>...HEAD` next cycle.
 

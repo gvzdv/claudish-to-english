@@ -11,12 +11,12 @@ Full detail: CONTRIBUTING.md
 ## How you tested it
 
 <!--
-Paste the command and its output. `CLAUDISH_STUB=1` avoids needing a provider:
+Paste the command and its output. `NATURALIZE_STUB=1` avoids needing a provider:
 
   BODY=$(python3 -c "print('This is a long assistant message. '*20)")
   jq -nc --arg d "$BODY" '{message_id:"m1",session_id:"s1",index:0,final:true,delta:$d,cwd:"/tmp"}' \
-  | CLAUDISH_STUB=1 CLAUDISH_STYLE_FILE=/nonexistent CLAUDISH_LANG_FILE=/nonexistent \
-    CLAUDISH_OFF_FILE=/nonexistent CLAUDISH_NOTICE=0 TMPDIR=/tmp/claudish-test \
+  | NATURALIZE_STUB=1 NATURALIZE_STYLE_FILE=/nonexistent NATURALIZE_LANG_FILE=/nonexistent \
+    NATURALIZE_OFF_FILE=/nonexistent NATURALIZE_NOTICE=0 TMPDIR=/tmp/naturalize-test \
     bash rewrite.sh | jq -r '.hookSpecificOutput.displayContent'
 -->
 
@@ -36,13 +36,13 @@ Paste the command and its output. `CLAUDISH_STUB=1` avoids needing a provider:
 
 ### If you added or changed a style preset
 
-`CLAUDISH_STYLE` is validated by an allowlist in four places. Missing one fails
+`NATURALIZE_STYLE` is validated by an allowlist in four places. Missing one fails
 silently:
 
 - [ ] `rewrite.sh` — system prompt + on-screen label
-- [ ] `claudish-ctl.sh` — `current_style`, `style_source`, dashboard, validation + error text
+- [ ] `naturalize-ctl.sh` — `current_style`, `style_source`, dashboard, validation + error text
 - [ ] `session-notice.sh` — the persisted-override warning
-- [ ] `commands/claudish.md` — `description` and `argument-hint`
+- [ ] `commands/naturalize.md` — `description` and `argument-hint`
 
 ### If you changed anything shown on screen
 
@@ -53,8 +53,8 @@ silently:
 - [ ] Any value from config or a flag file goes through `lang.sh`'s
       `_claudish_lang_clean` before being printed
 
-### If you touched `commands/claudish.md`
+### If you touched `commands/naturalize.md`
 
 - [ ] `allowed-tools` still reads
-      `Bash("${CLAUDE_PLUGIN_ROOT}/claudish-ctl.sh":*)` — quote closes **after**
-      the path. The other form breaks every `/claudish` call.
+      `Bash("${CLAUDE_PLUGIN_ROOT}/naturalize-ctl.sh":*)` — quote closes **after**
+      the path. The other form breaks every `/naturalize` call.

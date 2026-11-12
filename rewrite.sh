@@ -21,7 +21,7 @@
 #
 # Every rewrite is also told WHOSE voice it is reading: the input is one turn of
 # a conversation, so "I" is the assistant and "you" is the user. That framing is
-# added even over CLAUDISH_PROMPT_FILE, because it is a fact about the input
+# added even over NATURALIZE_PROMPT_FILE, because it is a fact about the input
 # rather than a style choice.
 #
 # FAIL-OPEN CONTRACT: on ANY problem (disabled, no jq, parse error, LLM down,
@@ -30,29 +30,29 @@
 # assistant's answer.
 #
 # Config (all via env, with safe defaults):
-#   CLAUDISH_ENABLED   1|0            master switch (default 1)
-#   CLAUDISH_OFF_FILE  <path>         flag file checked per message; when it
+#   NATURALIZE_ENABLED   1|0            master switch (default 1)
+#   NATURALIZE_OFF_FILE  <path>         flag file checked per message; when it
 #                                          exists, rewrites pause (default
-#                                          ~/.claude/claudish-off) — lets a
+#                                          ~/.claude/naturalize-off) — lets a
 #                                          hotkey/script toggle mid-session
-#   CLAUDISH_MODE      append|replace display strategy (default append)
-#   CLAUDISH_STYLE     tldr|5y|caveman  rewrite-style preset replacing the base
+#   NATURALIZE_MODE      append|replace display strategy (default append)
+#   NATURALIZE_STYLE     tldr|5y|caveman  rewrite-style preset replacing the base
 #                                          prompt: "tldr" = a clearly shorter
 #                                          summary; "5y" = explain like I'm
 #                                          five; "caveman" = blunt caveman
 #                                          speak. Unset/other = the default
 #                                          plain-language rewrite. A usable
-#                                          CLAUDISH_PROMPT_FILE wins over any
+#                                          NATURALIZE_PROMPT_FILE wins over any
 #                                          style (custom prompt > style >
 #                                          built-in); the language line still
 #                                          applies. Switch it live with
-#                                          /claudish style (a flag file,
-#                                          CLAUDISH_STYLE_FILE, overrides this)
-#   CLAUDISH_PROMPT_FILE <path>       file holding a replacement rewrite prompt
+#                                          /naturalize style (a flag file,
+#                                          NATURALIZE_STYLE_FILE, overrides this)
+#   NATURALIZE_PROMPT_FILE <path>       file holding a replacement rewrite prompt
 #                                          (whole prompt, not merged; empty or
 #                                          unreadable -> built-in default,
-#                                          overriding any CLAUDISH_STYLE)
-#   CLAUDISH_LANG      <language>     language to rewrite into, e.g. "Esperanto".
+#                                          overriding any NATURALIZE_STYLE)
+#   NATURALIZE_LANG      <language>     language to rewrite into, e.g. "Esperanto".
 #                                          Unset falls back to the session's
 #                                          `language` setting from
 #                                          .claude/settings*.json (the same key
@@ -62,37 +62,37 @@
 #                                          Set it EMPTY to ignore the settings
 #                                          key, or to "English" to force
 #                                          English. See lang.sh
-#   CLAUDISH_PROVIDER  ollama|codex|agy|anthropic|openai  which LLM serves rewrites
+#   NATURALIZE_PROVIDER  ollama|codex|agy|anthropic|openai  which LLM serves rewrites
 #                                           (default ollama; keys, base URLs,
 #                                           and per-provider model defaults
 #                                           are documented in providers.sh)
-#   CLAUDISH_MODEL     <model>         overrides the provider's default model
-#   CLAUDISH_OLLAMA    <base url>      (default http://localhost:11434)
-#   CLAUDISH_MIN_CHARS <n>            skip messages whose prose (code stripped)
+#   NATURALIZE_MODEL     <model>         overrides the provider's default model
+#   NATURALIZE_OLLAMA    <base url>      (default http://localhost:11434)
+#   NATURALIZE_MIN_CHARS <n>            skip messages whose prose (code stripped)
 #                                           is shorter than this many CHARACTERS
 #                                           (default 200)
-#   CLAUDISH_STUB      1|0            deterministic stub instead of the LLM
+#   NATURALIZE_STUB      1|0            deterministic stub instead of the LLM
 #                                           (for display-mechanics testing)
-#   CLAUDISH_TIMEOUT   <seconds>      LLM client timeout (default 45)
-#   CLAUDISH_DEBUG     1|0            write a debug log (default 0)
-#   CLAUDISH_NOTICE    1|0            once-per-session on-screen notice when the
+#   NATURALIZE_TIMEOUT   <seconds>      LLM client timeout (default 45)
+#   NATURALIZE_DEBUG     1|0            write a debug log (default 0)
+#   NATURALIZE_NOTICE    1|0            once-per-session on-screen notice when the
 #                                           rewrite is skipped because the
 #                                           provider is unreachable, times out,
 #                                           is missing a key or model (default 1)
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
-ENABLED="${CLAUDISH_ENABLED:-1}"
+ENABLED="${NATURALIZE_ENABLED:-1}"
 # Runtime kill switch: env is frozen at session launch, so a hotkey or script
-# can't flip CLAUDISH_ENABLED mid-session. A flag file can be checked fresh on
+# can't flip NATURALIZE_ENABLED mid-session. A flag file can be checked fresh on
 # every invocation. Create it to pause rewrites instantly; remove it to resume.
-[ -f "${CLAUDISH_OFF_FILE:-$HOME/.claude/claudish-off}" ] && ENABLED=0
-MODE="${CLAUDISH_MODE:-append}"
-# Runtime display-mode override written by /claudish (claudish-ctl.sh): like the
+[ -f "${NATURALIZE_OFF_FILE:-$HOME/.claude/naturalize-off}" ] && ENABLED=0
+MODE="${NATURALIZE_MODE:-append}"
+# Runtime display-mode override written by /naturalize (naturalize-ctl.sh): like the
 # off-file, a file re-read per message flips append<->replace mid-session where
-# the frozen CLAUDISH_MODE env cannot. Only the two known values are honoured;
+# the frozen NATURALIZE_MODE env cannot. Only the two known values are honoured;
 # anything else (or no file) leaves the env/default in place.
-_mode_file="${CLAUDISH_MODE_FILE:-$HOME/.claude/claudish-mode}"
+_mode_file="${NATURALIZE_MODE_FILE:-$HOME/.claude/naturalize-mode}"
 if [ -f "$_mode_file" ]; then
   case "$(cat "$_mode_file" 2>/dev/null | tr -d '[:space:]')" in
     append)  MODE=append ;;
@@ -104,8 +104,8 @@ fi
 # the default plain-language rewrite.
 # Like MODE, the env is the launch default and a flag file overrides it live.
 STYLE=""
-case "${CLAUDISH_STYLE:-}" in tldr|5y|caveman) STYLE="$CLAUDISH_STYLE" ;; esac
-_style_file="${CLAUDISH_STYLE_FILE:-$HOME/.claude/claudish-style}"
+case "${NATURALIZE_STYLE:-}" in tldr|5y|caveman) STYLE="$NATURALIZE_STYLE" ;; esac
+_style_file="${NATURALIZE_STYLE_FILE:-$HOME/.claude/naturalize-style}"
 if [ -f "$_style_file" ]; then
   case "$(cat "$_style_file" 2>/dev/null | tr -d '[:space:]')" in
     tldr)    STYLE=tldr ;;
@@ -113,13 +113,13 @@ if [ -f "$_style_file" ]; then
     caveman) STYLE=caveman ;;
   esac
 fi
-MIN_CHARS="${CLAUDISH_MIN_CHARS:-200}"
-STUB="${CLAUDISH_STUB:-0}"
-LLM_TIMEOUT="${CLAUDISH_TIMEOUT:-45}"
-DEBUG="${CLAUDISH_DEBUG:-0}"
-NOTICE="${CLAUDISH_NOTICE:-1}"
+MIN_CHARS="${NATURALIZE_MIN_CHARS:-200}"
+STUB="${NATURALIZE_STUB:-0}"
+LLM_TIMEOUT="${NATURALIZE_TIMEOUT:-45}"
+DEBUG="${NATURALIZE_DEBUG:-0}"
+NOTICE="${NATURALIZE_NOTICE:-1}"
 
-BUF_ROOT="${TMPDIR:-/tmp}/claudish-to-english"
+BUF_ROOT="${TMPDIR:-/tmp}/naturalize"
 # SEP (the on-screen label above the rewrite) names the configured output
 # language, so it is built on the final chunk, once that language is known.
 
@@ -193,13 +193,21 @@ dbg "chunk idx=$idx final=$final mid=$mid mode=$MODE"
 
 # ---- opt-out marker -------------------------------------------------------
 # A message that BEGINS with this marker is never rewritten (used by
-# /claudish last, whose whole point is reprinting an original — rewriting it
+# /naturalize last, whose whole point is reprinting an original — rewriting it
 # again would defeat it). The marker itself is stripped from the display.
-SKIP_MARK='<!-- claudish:original -->'
-strip_mark() { s="${1#"$SKIP_MARK"}"; s="${s#$'\n'}"; s="${s#$'\n'}"; printf '%s' "$s"; }
+# The previous marker is still recognised so a reprint started before the
+# rename is not rewritten on the next chunk.
+SKIP_MARK='<!-- naturalize:original -->'
+SKIP_MARK_OLD='<!-- claudish:original -->'
+strip_mark() {
+  s="$1"
+  s="${s#"$SKIP_MARK"}"; s="${s#"$SKIP_MARK_OLD"}"
+  s="${s#$'\n'}"; s="${s#$'\n'}"
+  printf '%s' "$s"
+}
 if [ "$idx" = "0" ]; then
   case "$(cat "$mdir/00000000.part" 2>/dev/null)" in
-    "$SKIP_MARK"*) : > "$mdir/skip" 2>/dev/null ;;
+    "$SKIP_MARK"*|"$SKIP_MARK_OLD"*) : > "$mdir/skip" 2>/dev/null ;;
   esac
 fi
 
@@ -290,12 +298,12 @@ if [ "$STUB" = "1" ]; then
   rewrite="STUB-SIMPLIFIED ✦ mode=$MODE chunks=$nparts prose_len=$prose_len ✦ (this text came from the hook, not the model)"
   dbg "stub rewrite"
 else
-  # Base system prompt, replaceable via CLAUDISH_PROMPT_FILE (a file holding the
+  # Base system prompt, replaceable via NATURALIZE_PROMPT_FILE (a file holding the
   # whole prompt). An unset/empty/unreadable file falls back to this default, so
   # a bad path never stops rewrites — it just uses the built-in prompt.
   sys="You rewrite the assistant's message into much simpler, plain language. Write the rewrite in the same language as the message you are rewriting. Keep every fact, name, number, and file path. Use short sentences and everyday words. Leave fenced code blocks unchanged. Output ONLY the rewritten message with no preamble, labels, or commentary."
   # Style presets replace the BASE prompt only: the language line below still
-  # applies, and a usable CLAUDISH_PROMPT_FILE still replaces everything —
+  # applies, and a usable NATURALIZE_PROMPT_FILE still replaces everything —
   # custom prompt > style > built-in.
   case "$STYLE" in
     tldr) sys="You rewrite the assistant's message as a SHORT summary in simple, plain language. This is a simplification, NOT a translation: it must be clearly shorter than the original — aim for half its length or less. Keep the key facts, decisions, numbers, and file paths; drop repetitions, hedges, and secondary detail. Keep technical terms, commands, and identifiers in their original form. Omit fenced code blocks (the original text is always in the transcript). Write the rewrite in the same language as the message you are rewriting. Output ONLY the rewritten message with no preamble, labels, or commentary." ;;
@@ -304,19 +312,19 @@ else
   esac
   # A configured language overrides "same language as the message" — it is the
   # last word in the prompt, and it names the language explicitly. The line goes
-  # on BEFORE the prompt-file check on purpose: a usable CLAUDISH_PROMPT_FILE
+  # on BEFORE the prompt-file check on purpose: a usable NATURALIZE_PROMPT_FILE
   # replaces the whole prompt, this line included. That file is the user's
   # prompt in full, and it states its own language.
   if [ -n "$OUT_LANG" ]; then
     sys="$sys"$'\n\n'"Write the rewrite in $OUT_LANG instead, whatever language the assistant's message is in. Use $OUT_LANG for all prose, including headings and lists. Keep code, identifiers, file paths, commands, and quoted output exactly as they are."
   fi
-  if [ -n "${CLAUDISH_PROMPT_FILE:-}" ]; then
+  if [ -n "${NATURALIZE_PROMPT_FILE:-}" ]; then
     _p=""
-    [ -r "$CLAUDISH_PROMPT_FILE" ] && _p="$(cat "$CLAUDISH_PROMPT_FILE" 2>/dev/null)"
+    [ -r "$NATURALIZE_PROMPT_FILE" ] && _p="$(cat "$NATURALIZE_PROMPT_FILE" 2>/dev/null)"
     if [ -n "$_p" ]; then
       sys="$_p"
     else
-      dbg "CLAUDISH_PROMPT_FILE set but empty/unreadable ($CLAUDISH_PROMPT_FILE); using default prompt"
+      dbg "NATURALIZE_PROMPT_FILE set but empty/unreadable ($NATURALIZE_PROMPT_FILE); using default prompt"
     fi
   fi
 
@@ -358,12 +366,12 @@ if [ -z "$rewrite" ]; then
   # wrong then. The notice only APPENDS one line to the original; it never
   # suppresses content, so the fail-open contract still holds.
   notified="$BUF_ROOT/$sid.notified"
-  TIMEOUT_HINT="raise CLAUDISH_TIMEOUT or set CLAUDISH_MODEL to a smaller model"
+  TIMEOUT_HINT="raise NATURALIZE_TIMEOUT or set NATURALIZE_MODEL to a smaller model"
   llm_notice_why
   if [ "$NOTICE" = "1" ] && [ ! -e "$notified" ] && [ -n "$NOTICE_WHY" ]; then
     : > "$notified" 2>/dev/null || true
     last_delta="$(cat "$final_part" 2>/dev/null)"
-    note=$'\n\n────────────────────────\n'"⚠️ claudish-to-english: $NOTICE_WHY. Showing Claude's original text unchanged. Shown once per session; set CLAUDISH_NOTICE=0 to silence."
+    note=$'\n\n────────────────────────\n'"⚠️ naturalize: $NOTICE_WHY. Showing Claude's original text unchanged. Shown once per session; set NATURALIZE_NOTICE=0 to silence."
     out="$BUF_ROOT/$sid.$mid.notice"
     if [ "$MODE" = "replace" ]; then
       { printf '%s' "$full"; printf '%s' "$note"; } > "$out" 2>/dev/null
@@ -392,7 +400,7 @@ if [ "$NOTICE" = "1" ] && [ ! -e "$oauth_noted" ]; then
   _onote="$(llm_oauth_note 2>/dev/null)"
   if [ -n "$_onote" ]; then
     : > "$oauth_noted" 2>/dev/null || true
-    oauth_note=$'\n\n'"⚠️ claudish-to-english: $_onote. Shown once per session; set CLAUDISH_NOTICE=0 to silence."
+    oauth_note=$'\n\n'"⚠️ naturalize: $_onote. Shown once per session; set NATURALIZE_NOTICE=0 to silence."
   fi
 fi
 

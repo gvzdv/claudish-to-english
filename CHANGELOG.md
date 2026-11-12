@@ -13,22 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The plugin's Stop hook rewrites the final answer through `rewrite.sh` and
   returns `decision: "continue"` with the rewrite embedded. The agent then
   echoes the rewrite verbatim in one extra turn. A per-conversation marker file
-  stops the second Stop from looping, `CLAUDISH_HOOK_DEPTH` stops nested
+  stops the second Stop from looping, `NATURALIZE_HOOK_DEPTH` stops nested
   rewrites from re-entering the hook, and every error fails open to `{}`. The echo keeps the Claude Code append block
   (rule line, label, rewrite). The marker lives in
-  `$TMPDIR/claudish-to-english-agy`, outside `rewrite.sh`'s buffer root, because
+  `$TMPDIR/naturalize-agy`, outside `rewrite.sh`'s buffer root, because
   `rewrite.sh` sweeps old empty folders there and could delete it mid-hook.
 - **Codex CLI plugin, append mode only (`.codex-plugin/`, `codex-stop.sh`).** When a Codex turn ends, the
   final answer is rewritten through `rewrite.sh` and shown as a `systemMessage`
   below the original (Codex has no replace mode). It prints `{}` when skipped or
   failed, and runs only after you trust it in `/hooks`. The nested `codex exec` of the codex
   provider now passes `--disable hooks`. The hook timeout is 620s so it
-  covers `CLAUDISH_TIMEOUT` up to 600s plus ~20s overhead. No skills or
+  covers `NATURALIZE_TIMEOUT` up to 600s plus ~20s overhead. No skills or
   commands are shipped for Codex, and Claude Code's hooks are unchanged.
-- **`agy` provider (Google Antigravity CLI).** `CLAUDISH_PROVIDER=agy` rewrites
+- **`agy` provider (Google Antigravity CLI).** `NATURALIZE_PROVIDER=agy` rewrites
   through `agy -p` with the CLI's cached login, so people who already use
-  Antigravity need no API key or local model server. `CLAUDISH_MODEL` picks the
-  model, `CLAUDISH_AGY_EFFORT` the effort, and `CLAUDISH_AGY_WORKDIR` the
+  Antigravity need no API key or local model server. `NATURALIZE_MODEL` picks the
+  model, `NATURALIZE_AGY_EFFORT` the effort, and `NATURALIZE_AGY_WORKDIR` the
   scratch directory it runs in (never the project). A missing login shows a
   notice telling you to run `agy` once; like every provider it fails open.
 
@@ -36,14 +36,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README: a **Supported hosts** table (Claude Code, Codex CLI, Codex app,
   Antigravity CLI, Antigravity App/IDE, Grok Build) with mode, display, and
   test status, plus install, trust, settings, and off-switch steps for each.
-  Install commands now point at this fork, `ValerioL29/agentish-to-english`;
-  the upstream `gvzdv/claudish-to-english` is still credited and linked.
+  Install commands point at this repo, `ValerioL29/agentish-to-english`.
   Codex installs straight from GitHub with
   `codex plugin marketplace add ValerioL29/agentish-to-english`.
 - Grok Build is documented as not supported: its passive hooks can't show
   text or continue a turn.
 
 ### Changed
+- **Installed name is `naturalize`.** Claude Code, Codex, and Antigravity
+  plugin ids and the marketplace entry are `naturalize`. Environment variables
+  use the `NATURALIZE_` prefix (`NATURALIZE_PROVIDER`, `NATURALIZE_TIMEOUT`,
+  and the rest). The on-demand script is `naturalize-md.sh`; errors are
+  prefixed `naturalize-md:`. Scratch directories are `$TMPDIR/naturalize` and
+  `$TMPDIR/naturalize-agy`. Overwrite mode writes
+  `<!-- naturalize:rewritten -->` and skips a file only when that marker is
+  already there.
+  The slash command is `/naturalize` (`commands/naturalize.md`), backed by
+  `naturalize-ctl.sh`. It writes `~/.claude/naturalize-off`, `naturalize-mode`,
+  `naturalize-style`, `naturalize-lang`, and `naturalize-model`.
+  `/naturalize last` marks a reply with `<!-- naturalize:original -->`; the
+  display hook still skips a reply that starts with the previous marker.
+- **Links and the marketplace id follow this repo.** `homepage`, `repository`,
+  changelog compare links, and the README screenshot URL are
+  `https://github.com/ValerioL29/agentish-to-english`. The marketplace id is
+  `valeriol29-plugins`, so the install command is
+  `/plugin install naturalize@valeriol29-plugins`. The README no longer tells
+  you to install another marketplace. The Antigravity manual hook key is
+  `naturalize-append`.
 - `agy-stop.sh` also accepts `transcript.jsonl` or `transcript_full.jsonl` in
   the folder of the payload's `transcriptPath`, so the hook works whichever
   file name the Antigravity CLI, App, or IDE reports.
@@ -355,17 +374,17 @@ by Davide Di Pumpo, adapted to the provider layer and language resolver.
 - Optional `PostToolUse` Markdown-file rewrite hook (`rewrite-md.sh`), opt-in by
   directory (`CLAUDISH_MD_DIR`), with `sibling` and `overwrite` modes.
 
-[Unreleased]: https://github.com/gvzdv/claudish-to-english/compare/v0.10.0...HEAD
-[0.10.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.9.0...v0.10.0
-[0.9.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.8.0...v0.9.0
-[0.8.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.7.1...v0.8.0
-[0.7.1]: https://github.com/gvzdv/claudish-to-english/compare/v0.7.0...v0.7.1
-[0.7.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.6.0...v0.7.0
-[0.6.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.5.1...v0.6.0
-[0.5.1]: https://github.com/gvzdv/claudish-to-english/compare/v0.5.0...v0.5.1
-[0.5.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.4.0...v0.5.0
-[0.4.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/gvzdv/claudish-to-english/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/gvzdv/claudish-to-english/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/gvzdv/claudish-to-english/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ValerioL29/agentish-to-english/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/ValerioL29/agentish-to-english/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/ValerioL29/agentish-to-english/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/ValerioL29/agentish-to-english/compare/v0.7.1...v0.8.0
+[0.7.1]: https://github.com/ValerioL29/agentish-to-english/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/ValerioL29/agentish-to-english/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/ValerioL29/agentish-to-english/compare/v0.5.1...v0.6.0
+[0.5.1]: https://github.com/ValerioL29/agentish-to-english/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/ValerioL29/agentish-to-english/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/ValerioL29/agentish-to-english/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/ValerioL29/agentish-to-english/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/ValerioL29/agentish-to-english/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/ValerioL29/agentish-to-english/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/ValerioL29/agentish-to-english/releases/tag/v0.1.0

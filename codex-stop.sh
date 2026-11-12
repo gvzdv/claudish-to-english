@@ -9,21 +9,21 @@
 # Codex shows as a warning-styled message BELOW the original. The original
 # stays on screen and in history; the rewrite never enters model context.
 # (suppressOutput is parsed but not implemented by Codex, so `replace` mode is
-# impossible here; CLAUDISH_MODE is ignored and append is forced.)
+# impossible here; NATURALIZE_MODE is ignored and append is forced.)
 #
 # The rewrite itself is NOT duplicated here: the message is fed to rewrite.sh
 # as a synthetic two-chunk MessageDisplay stream (whole text, then an empty
 # final chunk), so every display-hook setting applies unchanged —
-# CLAUDISH_ENABLED, CLAUDISH_OFF_FILE, CLAUDISH_STYLE(_FILE), CLAUDISH_LANG /
-# language, CLAUDISH_PROMPT_FILE, CLAUDISH_PROVIDER, CLAUDISH_MODEL,
-# CLAUDISH_CODEX_EFFORT, CLAUDISH_TIMEOUT, CLAUDISH_MIN_CHARS, CLAUDISH_STUB,
-# CLAUDISH_DEBUG, CLAUDISH_NOTICE, and the provider keys (providers.sh).
+# NATURALIZE_ENABLED, NATURALIZE_OFF_FILE, NATURALIZE_STYLE(_FILE), NATURALIZE_LANG /
+# language, NATURALIZE_PROMPT_FILE, NATURALIZE_PROVIDER, NATURALIZE_MODEL,
+# NATURALIZE_CODEX_EFFORT, NATURALIZE_TIMEOUT, NATURALIZE_MIN_CHARS, NATURALIZE_STUB,
+# NATURALIZE_DEBUG, NATURALIZE_NOTICE, and the provider keys (providers.sh).
 #
 # OUTPUT CONTRACT: Codex requires JSON on stdout for Stop when exiting 0.
 # We ALWAYS exit 0 and print either {"systemMessage": ...} or {}. We never
 # print decision:block (that would start a continuation turn). Skips -> {}:
 #   - last_assistant_message null/empty, or stop_hook_active true
-#   - CLAUDISH_HOOK_DEPTH set (we are inside a nested `codex exec` started by
+#   - NATURALIZE_HOOK_DEPTH set (we are inside a nested `codex exec` started by
 #     the codex provider — recursion guard)
 #   - rewrite.sh disabled/failed/too short, or rewrite empty/identical
 # ---------------------------------------------------------------------------
@@ -35,8 +35,8 @@ out_empty() { printf '{}\n'; exit 0; }
 # plugin's hooks again. The marker is exported below and inherited by the
 # nested codex process and its hooks. (providers.sh also passes
 # `--disable hooks` to that nested call; this is the belt to those braces.)
-[ -n "${CLAUDISH_HOOK_DEPTH:-}" ] && out_empty
-export CLAUDISH_HOOK_DEPTH=1
+[ -n "${NATURALIZE_HOOK_DEPTH:-}" ] && out_empty
+export NATURALIZE_HOOK_DEPTH=1
 
 command -v jq >/dev/null 2>&1 || out_empty
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -66,9 +66,9 @@ chunk() {
     --argjson i "$2" --argjson f "$3" \
     '{session_id:$sid,message_id:$mid,cwd:$cwd,index:$i,final:$f,delta:$d,hook_event_name:"MessageDisplay"}'
 }
-chunk "$msg" 0 false | CLAUDISH_MODE=append CLAUDISH_MODE_FILE=/dev/null/none \
+chunk "$msg" 0 false | NATURALIZE_MODE=append NATURALIZE_MODE_FILE=/dev/null/none \
   bash "$SELF_DIR/rewrite.sh" >/dev/null 2>&1
-res="$(chunk "" 1 true | CLAUDISH_MODE=append CLAUDISH_MODE_FILE=/dev/null/none \
+res="$(chunk "" 1 true | NATURALIZE_MODE=append NATURALIZE_MODE_FILE=/dev/null/none \
   bash "$SELF_DIR/rewrite.sh" 2>/dev/null)"
 
 dc="$(printf '%s' "$res" | jq -r '.hookSpecificOutput.displayContent // empty' 2>/dev/null)"

@@ -1,5 +1,5 @@
 {
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
-  "name": "claudish-to-english",
+  "name": "naturalize",
   "description": "PROTOTYPE, append mode only: after each finished turn, a Stop hook rewrites the final answer in plain language and asks the agent to echo it verbatim as a second reply."
 }

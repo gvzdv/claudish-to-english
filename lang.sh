@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Output-language resolver for claudish-to-english. Sourced by rewrite.sh and
+# Output-language resolver for naturalize. Sourced by rewrite.sh and
 # rewrite-md.sh — not executed directly.
 #
 # claudish_language [CWD] prints the language the rewrite should be written in,
@@ -8,7 +8,7 @@
 # leaves the rewrite in whatever language the text it rewrites is already
 # written in. English is not a default here, only one possible answer.
 # First non-empty source wins:
-#   1. CLAUDISH_LANG                      explicit override. Set but EMPTY
+#   1. NATURALIZE_LANG                      explicit override. Set but EMPTY
 #                                         ignores the settings below and keeps
 #                                         the text's own language; set it to
 #                                         "English" to actually force English.
@@ -55,24 +55,24 @@ _claudish_lang_clean() {
 }
 
 claudish_language() {
-  # Runtime override written by /claudish (claudish-ctl.sh): a file re-read on
-  # every message, so a `/claudish language X` switch takes effect mid-session
-  # where the frozen CLAUDISH_LANG env cannot. It sits ABOVE the env and the
-  # settings files for the same reason the off-file sits above CLAUDISH_ENABLED
-  # — only a per-message file can be flipped without relaunching. `/claudish
+  # Runtime override written by /naturalize (naturalize-ctl.sh): a file re-read on
+  # every message, so a `/naturalize language X` switch takes effect mid-session
+  # where the frozen NATURALIZE_LANG env cannot. It sits ABOVE the env and the
+  # settings files for the same reason the off-file sits above NATURALIZE_ENABLED
+  # — only a per-message file can be flipped without relaunching. `/naturalize
   # language default` removes it and restores the resolution below. The file
   # persists across sessions (like the off-file); cleaned like every source.
-  _cl_file="${CLAUDISH_LANG_FILE:-${HOME:-}/.claude/claudish-lang}"
+  _cl_file="${NATURALIZE_LANG_FILE:-${HOME:-}/.claude/naturalize-lang}"
   if [ -f "$_cl_file" ]; then
     _cl_rv="$(_claudish_lang_clean "$(head -c 64 "$_cl_file" 2>/dev/null)")"
     if [ -n "$_cl_rv" ]; then printf '%s' "$_cl_rv"; return 0; fi
   fi
 
-  # An explicitly set CLAUDISH_LANG always wins, including an explicitly EMPTY
+  # An explicitly set NATURALIZE_LANG always wins, including an explicitly EMPTY
   # one — the escape hatch for keeping rewrites in English on a session that
   # speaks something else.
-  if [ -n "${CLAUDISH_LANG+x}" ]; then
-    _claudish_lang_clean "$CLAUDISH_LANG"
+  if [ -n "${NATURALIZE_LANG+x}" ]; then
+    _claudish_lang_clean "$NATURALIZE_LANG"
     return 0
   fi
 

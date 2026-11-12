@@ -7,7 +7,7 @@
 # way to get the rewrite on screen is the Stop hook's {"decision":"continue",
 # "reason":...}: the loop re-enters with `reason` injected as a system message.
 # So this hook (1) reads the final assistant text from the transcript,
-# (2) rewrites it through rewrite.sh (all CLAUDISH_* settings apply), and
+# (2) rewrites it through rewrite.sh (all NATURALIZE_* settings apply), and
 # (3) returns "continue" with a reason that EMBEDS the finished rewrite and
 # tells the model to output it verbatim, with no tools. That "echo pass" is a
 # second model turn: it costs a model call and the echo is the model's, so
@@ -21,10 +21,10 @@
 #
 # Loop guard: before returning "continue", a marker
 # $STATE/<conversationId>.echo is written (default STATE:
-# $TMPDIR/claudish-to-english-agy); the next Stop for that
+# $TMPDIR/naturalize-agy); the next Stop for that
 # conversation (the end of the echo pass) sees it, deletes it, and allows the
 # stop. Markers older than 15 min are treated as stale. Recursion guard:
-# CLAUDISH_HOOK_DEPTH is exported for the rewrite, so if the provider is a
+# NATURALIZE_HOOK_DEPTH is exported for the rewrite, so if the provider is a
 # nested `agy -p` that loads this hook again, it exits at once.
 #
 # OUTPUT CONTRACT: always exit 0. Print {"decision":"continue",...} only when
@@ -34,8 +34,8 @@ set -uo pipefail
 
 allow() { printf '{}\n'; exit 0; }
 
-[ -n "${CLAUDISH_HOOK_DEPTH:-}" ] && allow
-export CLAUDISH_HOOK_DEPTH=1
+[ -n "${NATURALIZE_HOOK_DEPTH:-}" ] && allow
+export NATURALIZE_HOOK_DEPTH=1
 command -v jq >/dev/null 2>&1 || allow
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$SELF_DIR/rewrite.sh" ] || allow
@@ -46,10 +46,10 @@ get() { printf '%s' "$payload" | jq -r "$1" 2>/dev/null; }
 
 cid="$(get '.conversationId // empty' | tr -cd 'A-Za-z0-9_-')"
 [ -n "$cid" ] || allow
-# Deliberately NOT under rewrite.sh's buffer root ($TMPDIR/claudish-to-english):
+# Deliberately NOT under rewrite.sh's buffer root ($TMPDIR/naturalize):
 # rewrite.sh sweeps empty subdirectories there that are older than 30 min, which
 # deleted this state dir mid-hook and made the marker write fail (no echo).
-STATE="${CLAUDISH_AGY_STATE:-${TMPDIR:-/tmp}/claudish-to-english-agy}"
+STATE="${NATURALIZE_AGY_STATE:-${TMPDIR:-/tmp}/naturalize-agy}"
 mkdir -p "$STATE" 2>/dev/null || allow
 marker="$STATE/$cid.echo"
 
@@ -88,10 +88,10 @@ chunk() {
     --argjson i "$2" --argjson f "$3" \
     '{session_id:$sid,message_id:$mid,cwd:$cwd,index:$i,final:$f,delta:$d,hook_event_name:"MessageDisplay"}'
 }
-chunk "$msg" 0 false | CLAUDISH_MODE=append CLAUDISH_MODE_FILE=/dev/null/none \
-  CLAUDISH_NOTICE="${CLAUDISH_NOTICE:-0}" bash "$SELF_DIR/rewrite.sh" >/dev/null 2>&1
-res="$(chunk "" 1 true | CLAUDISH_MODE=append CLAUDISH_MODE_FILE=/dev/null/none \
-  CLAUDISH_NOTICE="${CLAUDISH_NOTICE:-0}" bash "$SELF_DIR/rewrite.sh" 2>/dev/null)"
+chunk "$msg" 0 false | NATURALIZE_MODE=append NATURALIZE_MODE_FILE=/dev/null/none \
+  NATURALIZE_NOTICE="${NATURALIZE_NOTICE:-0}" bash "$SELF_DIR/rewrite.sh" >/dev/null 2>&1
+res="$(chunk "" 1 true | NATURALIZE_MODE=append NATURALIZE_MODE_FILE=/dev/null/none \
+  NATURALIZE_NOTICE="${NATURALIZE_NOTICE:-0}" bash "$SELF_DIR/rewrite.sh" 2>/dev/null)"
 dc="$(printf '%s' "$res" | jq -r '.hookSpecificOutput.displayContent // empty' 2>/dev/null)"
 # Keep "<rule>\n<label>\n\n<rewrite>", same as the Claude Code append block:
 # drop only the blank lines before the rule.
@@ -103,7 +103,7 @@ norm() { printf '%s' "$1" | tr -d '[:space:]'; }
 [ -n "$(norm "$body")" ] || allow
 [ "$(norm "$body")" = "$(norm "$msg")" ] && allow
 
-instr="claudish-to-english (plain-language display hook): your previous reply is complete. Now output ONLY the text between the markers BEGIN-CLAUDISH and END-CLAUDISH below, verbatim and in full, as your entire reply. Do not translate, summarize, rephrase, add anything before or after it, include the markers, or call any tools. This is not a new task.
+instr="naturalize (plain-language display hook): your previous reply is complete. Now output ONLY the text between the markers BEGIN-CLAUDISH and END-CLAUDISH below, verbatim and in full, as your entire reply. Do not translate, summarize, rephrase, add anything before or after it, include the markers, or call any tools. This is not a new task.
 BEGIN-CLAUDISH
 $out
 END-CLAUDISH"

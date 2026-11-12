@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# session-notice.sh — SessionStart hook. Announces any /claudish overrides that
+# session-notice.sh — SessionStart hook. Announces any /naturalize overrides that
 # are still in force at the start of a session.
 #
-# The /claudish flag files persist across sessions by design (so does the
+# The /naturalize flag files persist across sessions by design (so does the
 # off-file). That is convenient but can surprise: a language or model set in an
 # earlier session silently applies to a brand-new one. This hook makes it
 # visible — it prints a one-line systemMessage listing whatever is active, so a
@@ -13,12 +13,12 @@
 # any problem this emits nothing and exits 0.
 #
 # Config:
-#   CLAUDISH_NOTICE 1|0   set 0 to stay silent (shared with the rewrite hooks)
-#   CLAUDISH_OFF_FILE / _MODE_FILE / _LANG_FILE / _MODEL_FILE  override paths
+#   NATURALIZE_NOTICE 1|0   set 0 to stay silent (shared with the rewrite hooks)
+#   NATURALIZE_OFF_FILE / _MODE_FILE / _LANG_FILE / _MODEL_FILE  override paths
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
-[ "${CLAUDISH_NOTICE:-1}" = "1" ] || exit 0
+[ "${NATURALIZE_NOTICE:-1}" = "1" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
 # lang.sh owns the authoritative normalisation of a language value — the same
@@ -31,11 +31,11 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 # pipe keeps the hook well-behaved.
 cat >/dev/null 2>&1 || true
 
-OFF_FILE="${CLAUDISH_OFF_FILE:-$HOME/.claude/claudish-off}"
-MODE_FILE="${CLAUDISH_MODE_FILE:-$HOME/.claude/claudish-mode}"
-STYLE_FILE="${CLAUDISH_STYLE_FILE:-$HOME/.claude/claudish-style}"
-LANG_FILE="${CLAUDISH_LANG_FILE:-$HOME/.claude/claudish-lang}"
-MODEL_FILE="${CLAUDISH_MODEL_FILE:-$HOME/.claude/claudish-model}"
+OFF_FILE="${NATURALIZE_OFF_FILE:-$HOME/.claude/naturalize-off}"
+MODE_FILE="${NATURALIZE_MODE_FILE:-$HOME/.claude/naturalize-mode}"
+STYLE_FILE="${NATURALIZE_STYLE_FILE:-$HOME/.claude/naturalize-style}"
+LANG_FILE="${NATURALIZE_LANG_FILE:-$HOME/.claude/naturalize-lang}"
+MODEL_FILE="${NATURALIZE_MODEL_FILE:-$HOME/.claude/naturalize-model}"
 
 parts=""
 add() { parts="${parts:+$parts, }$1"; }
@@ -75,6 +75,6 @@ fi
 # Nothing overridden -> stay completely silent.
 [ -n "$parts" ] || exit 0
 
-msg="claudish: overrides from an earlier /claudish are still active — ${parts}. Run /claudish to review, or /claudish reset to clear (set CLAUDISH_NOTICE=0 to silence)."
+msg="naturalize: overrides from an earlier /naturalize are still active — ${parts}. Run /naturalize to review, or /naturalize reset to clear (set NATURALIZE_NOTICE=0 to silence)."
 jq -n --arg m "$msg" '{systemMessage:$m}' 2>/dev/null || exit 0
 exit 0

@@ -1,14 +1,14 @@
 {
-  "name": "gvzdv-plugins",
+  "name": "valeriol29-plugins",
   "owner": {
-    "name": "Mike Gvozdev",
-    "email": "mv.gvozdev@gmail.com",
-    "url": "https://github.com/gvzdv"
+    "name": "Jiacheng",
+    "email": "87881521+ValerioL29@users.noreply.github.com",
+    "url": "https://github.com/ValerioL29"
   },
-  "description": "Mike Gvozdev's Claude Code plugins.",
+  "description": "Claude Code plugins from the naturalize fork.",
   "plugins": [
     {
-      "name": "claudish-to-english",
+      "name": "naturalize",
       "source": "./",
       "description": "Shows a plain-English rewrite of each Claude Code assistant message, produced by a local LLM (ollama, default), the Anthropic API, or any OpenAI-compatible API. Display-only.",
       "category": "productivity"

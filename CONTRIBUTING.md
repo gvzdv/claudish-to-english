@@ -21,7 +21,7 @@ missing file — a hook must emit nothing and `exit 0`, which leaves Claude's
 original text on screen. A display hook that can swallow or corrupt an
 assistant's answer is worse than no plugin at all. If you are unsure whether
 your change preserves this, say so in the PR and it will get checked.
-The one script that is not a hook, `claudish-md.sh` (behind `/claudish file`),
+The one script that is not a hook, `naturalize-md.sh` (behind `/naturalize file`),
 is the exception: a person ran it, so it reports every failure instead of
 hiding it, but it still never prints or writes a partial rewrite.
 
@@ -39,7 +39,7 @@ release a single deliberate commit instead of a scatter of half-bumps.
 ## Setting up
 
 You need `bash`, `jq`, and `curl`. For an end-to-end run you also need a
-provider — but for most work you do **not**: `CLAUDISH_STUB=1` replaces the LLM
+provider — but for most work you do **not**: `NATURALIZE_STUB=1` replaces the LLM
 call with a deterministic string, which is enough to test all the display
 mechanics.
 
@@ -49,8 +49,8 @@ are not running two copies at once:
 
 ```jsonc
 {
-  "enabledPlugins": { "claudish-to-english@gvzdv-plugins": false },
-  "env": { "CLAUDISH_STUB": "1", "CLAUDISH_MIN_CHARS": "50", "CLAUDISH_DEBUG": "1" },
+  "enabledPlugins": { "naturalize@valeriol29-plugins": false },
+  "env": { "NATURALIZE_STUB": "1", "NATURALIZE_MIN_CHARS": "50", "NATURALIZE_DEBUG": "1" },
   "hooks": {
     "MessageDisplay": [
       { "hooks": [ { "type": "command", "command": "/abs/path/to/rewrite.sh", "timeout": 60 } ] }
@@ -63,7 +63,7 @@ Without that `enabledPlugins: false`, both your copy and the installed plugin
 fire on the same message and whichever writes last wins — a genuinely confusing
 way to lose an afternoon.
 
-`CLAUDISH_DEBUG=1` writes to `${TMPDIR:-/tmp}/claudish-to-english/debug.log`.
+`NATURALIZE_DEBUG=1` writes to `${TMPDIR:-/tmp}/naturalize/debug.log`.
 
 ---
 
@@ -80,15 +80,15 @@ for f in *.sh; do bash -n "$f" || echo "FAIL $f"; done
 
 **Drive the display hook end to end.** Point `TMPDIR` at a scratch directory and
 send the `*_FILE` variables somewhere nonexistent so your own
-`~/.claude/claudish-*` flag files do not leak into the test:
+`~/.claude/naturalize-*` flag files do not leak into the test:
 
 ```bash
 BODY=$(python3 -c "print('This is a long assistant message. '*20)")
 jq -nc --arg d "$BODY" \
   '{message_id:"m1",session_id:"s1",index:0,final:true,delta:$d,cwd:"/tmp"}' \
-| CLAUDISH_STUB=1 CLAUDISH_STYLE=caveman \
-  CLAUDISH_STYLE_FILE=/nonexistent CLAUDISH_LANG_FILE=/nonexistent \
-  CLAUDISH_OFF_FILE=/nonexistent CLAUDISH_NOTICE=0 TMPDIR=/tmp/claudish-test \
+| NATURALIZE_STUB=1 NATURALIZE_STYLE=caveman \
+  NATURALIZE_STYLE_FILE=/nonexistent NATURALIZE_LANG_FILE=/nonexistent \
+  NATURALIZE_OFF_FILE=/nonexistent NATURALIZE_NOTICE=0 TMPDIR=/tmp/naturalize-test \
   bash rewrite.sh | jq -r '.hookSpecificOutput.displayContent'
 ```
 
@@ -100,20 +100,20 @@ printf ''                                | bash rewrite.sh; echo "rc=$?"
 printf '{"session_id":"s","final":true}' | bash rewrite.sh; echo "rc=$?"   # no message_id
 ```
 
-**Drive the on-demand rewrite.** `claudish-md.sh` is not a hook: it must fail
-*loudly* (a `claudish-md:` reason on stderr, non-zero exit), and it must never
+**Drive the on-demand rewrite.** `naturalize-md.sh` is not a hook: it must fail
+*loudly* (a `naturalize-md:` reason on stderr, non-zero exit), and it must never
 print or write a partial rewrite. Check both the success and the failure path:
 
 ```bash
-printf -- '---\ntitle: x\n---\n# Hi\n\nSome prose.\n' > /tmp/claudish-test.md
-CLAUDISH_STUB=1 CLAUDISH_LANG_FILE=/nonexistent CLAUDISH_MODEL_FILE=/nonexistent \
-  bash claudish-md.sh -l English /tmp/claudish-test.md       # frontmatter kept verbatim
-CLAUDISH_OLLAMA=http://127.0.0.1:1 CLAUDISH_MD_TIMEOUT=3 \
-  bash claudish-md.sh /tmp/claudish-test.md -o /tmp/x.md; echo "rc=$?"   # rc=1, no /tmp/x.md
-printf 'file /tmp/claudish-test.md\n' | CLAUDISH_STUB=1 bash claudish-ctl.sh --stdin-args
-CLAUDISH_STUB=1 bash claudish-md.sh \
-  https://github.com/gvzdv/claudish-to-english/blob/main/README.md | head   # blob -> raw
-CLAUDISH_STUB=1 bash claudish-md.sh https://github.com/gvzdv; echo "rc=$?"   # HTML: refused, rc=1
+printf -- '---\ntitle: x\n---\n# Hi\n\nSome prose.\n' > /tmp/naturalize-test.md
+NATURALIZE_STUB=1 NATURALIZE_LANG_FILE=/nonexistent NATURALIZE_MODEL_FILE=/nonexistent \
+  bash naturalize-md.sh -l English /tmp/naturalize-test.md       # frontmatter kept verbatim
+NATURALIZE_OLLAMA=http://127.0.0.1:1 NATURALIZE_MD_TIMEOUT=3 \
+  bash naturalize-md.sh /tmp/naturalize-test.md -o /tmp/x.md; echo "rc=$?"   # rc=1, no /tmp/x.md
+printf 'file /tmp/naturalize-test.md\n' | NATURALIZE_STUB=1 bash naturalize-ctl.sh --stdin-args
+NATURALIZE_STUB=1 bash naturalize-md.sh \
+  https://github.com/ValerioL29/agentish-to-english/blob/main/README.md | head   # blob -> raw
+NATURALIZE_STUB=1 bash naturalize-md.sh https://github.com/ValerioL29; echo "rc=$?"   # HTML: refused, rc=1
 ```
 
 **If you touched anything user-visible on screen, check it in a real session**
@@ -129,18 +129,18 @@ expensive to find.
 
 ### A new style preset touches four readers, not one
 
-`CLAUDISH_STYLE` / the style flag file are validated by an allowlist in **four**
+`NATURALIZE_STYLE` / the style flag file are validated by an allowlist in **four**
 places. Miss one and the failure is silent:
 
 | File | What it does with the value |
 |---|---|
 | `rewrite.sh` | picks the system prompt and the on-screen label |
-| `claudish-ctl.sh` | `current_style`, `style_source`, the dashboard, `/claudish style` validation and its error text |
+| `naturalize-ctl.sh` | `current_style`, `style_source`, the dashboard, `/naturalize style` validation and its error text |
 | `session-notice.sh` | warns at session start that a persisted style is still active |
-| `commands/claudish.md` | `description` and `argument-hint` |
+| `commands/naturalize.md` | `description` and `argument-hint` |
 
 Plus `README.md` and `CHANGELOG.md`. The `caveman` preset shipped with
-`session-notice.sh` missed, so a style set by `/claudish style` persisted across
+`session-notice.sh` missed, so a style set by `/naturalize style` persisted across
 sessions with nothing on screen to say so.
 
 ### Never emit ANSI escape codes
@@ -159,18 +159,18 @@ not `\033[1;93m`. Raw ANSI is a bad idea here for three separate reasons:
 The renderer honours SGR codes but strips other control sequences, so this is
 about legibility and piped output, not safety.
 
-### `allowed-tools` quoting in `commands/claudish.md`
+### `allowed-tools` quoting in `commands/naturalize.md`
 
 The correct line is:
 
 ```
-allowed-tools: Bash("${CLAUDE_PLUGIN_ROOT}/claudish-ctl.sh":*)
+allowed-tools: Bash("${CLAUDE_PLUGIN_ROOT}/naturalize-ctl.sh":*)
 ```
 
 The quote closes **after** the path. If you see
-`Bash("${CLAUDE_PLUGIN_ROOT}"/claudish-ctl.sh:*)` — quote before the slash —
+`Bash("${CLAUDE_PLUGIN_ROOT}"/naturalize-ctl.sh:*)` — quote before the slash —
 that is the bug: the injected command quotes the whole path, so the rule's
-prefix never matches and every `/claudish` call fails with
+prefix never matches and every `/naturalize` call fails with
 `Shell command permission check failed`, with no permission prompt to fall back
 on. This has regressed twice, once through a merge conflict resolution. Do not
 "fix" it back.
@@ -178,10 +178,10 @@ on. This has regressed twice, once through a merge conflict resolution. Do not
 The same frontmatter sets `disable-model-invocation: true`, and it must stay.
 Plugin commands are otherwise offered to Claude as tools it can call on its
 own, and the `allowed-tools` rule above pre-approves the script for whoever
-calls it. With the flag off, Claude could run `/claudish file <URL>` — fetch
+calls it. With the flag off, Claude could run `/naturalize file <URL>` — fetch
 any URL, read any file it can name and send it to the provider, write
 `NAME.plain.md` beside it — or flip a persistent setting, all without a
-permission prompt. `/claudish` is the user's control; only the user types it.
+permission prompt. `/naturalize` is the user's control; only the user types it.
 
 ### Untrusted config values must go through `lang.sh`
 
@@ -196,7 +196,7 @@ value at three words / 30 codepoints. Do not print a raw config value.
 `rewrite.sh` and `rewrite-md.sh` source both. A change to either affects the
 Markdown hook too, and a missing file must degrade rather than stop rewrites.
 
-`claudish-md.sh` (the on-demand CLI behind `/claudish file`) sources both as
+`naturalize-md.sh` (the on-demand CLI behind `/naturalize file`) sources both as
 well, plus `md-core.sh`, which it shares with `rewrite-md.sh`. The Markdown
 prompt and the frontmatter split live **only** in `md-core.sh`: change them there,
 and both the hook and the CLI follow. The two callers differ only in failure
@@ -211,7 +211,7 @@ mode and turn the result into the host's output: a `systemMessage` for Codex,
 `decision: "continue"` with the rewrite in `reason` for Antigravity. So a
 change to `rewrite.sh`'s append block changes what Codex and Antigravity show.
 
-Both export `CLAUDISH_HOOK_DEPTH=1` and exit early when it is already set.
+Both export `NATURALIZE_HOOK_DEPTH=1` and exit early when it is already set.
 That stops a nested `codex exec` or `agy -p` (the codex and agy providers)
 from running the hook again. The codex provider also passes `--disable hooks`.
 Keep both guards. `antigravity-plugin/` holds symlinks to the shared scripts;
@@ -222,7 +222,7 @@ Quick fail-open checks (each must print `{}`):
 ```bash
 printf 'not json' | bash codex-stop.sh; echo
 printf 'not json' | bash agy-stop.sh; echo
-CLAUDISH_HOOK_DEPTH=1 bash agy-stop.sh </dev/null; echo
+NATURALIZE_HOOK_DEPTH=1 bash agy-stop.sh </dev/null; echo
 ```
 
 The Codex app, Antigravity App and IDE, and Grok Build have no automated
@@ -267,8 +267,8 @@ git switch -c release/0.9.0 origin/main
 # 2. CHANGELOG.md: "## [Unreleased]"  ->  "## [0.9.0] - YYYY-MM-DD"
 
 # 3. CHANGELOG.md link refs at the bottom: add the new version, repoint Unreleased
-#    [Unreleased]: https://github.com/gvzdv/claudish-to-english/compare/v0.9.0...HEAD
-#    [0.9.0]:      https://github.com/gvzdv/claudish-to-english/compare/v0.8.0...v0.9.0
+#    [Unreleased]: https://github.com/ValerioL29/agentish-to-english/compare/v0.9.0...HEAD
+#    [0.9.0]:      https://github.com/ValerioL29/agentish-to-english/compare/v0.8.0...v0.9.0
 
 # 4. .claude-plugin/plugin.json: bump "version"
 
