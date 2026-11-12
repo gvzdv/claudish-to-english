@@ -1,7 +1,7 @@
 {
   "name": "naturalize",
   "description": "Plain-language rewrites for Codex, append mode only: a Stop hook appends a plain-language copy of each final answer as a systemMessage (after you trust it via /hooks).",
-  "version": "0.10.0",
+  "version": "1.0.0",
   "author": {
     "name": "Mike Gvozdev",
     "email": "mv.gvozdev@gmail.com",
